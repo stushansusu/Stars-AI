@@ -1,0 +1,11 @@
+# 开发期产物（不进版本库）
+_e2e/
+node_modules/
+_preview*
+_*.log
+*.tmp
+
+# 系统垃圾
+.DS_Store
+Thumbs.db
+desktop.ini

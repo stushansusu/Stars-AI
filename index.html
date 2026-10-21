@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>Stars-AI</title>
+<link rel="stylesheet" href="css/style.css?v=0.7.40" />
+</head>
+<body>
+<div class="app">
+
+  <header class="brand">
+    <div class="logo">✦</div>
+    <div class="brand-txt">
+      <h1>Stars-AI</h1>
+      <span class="sub">ComfyUI 修图助手</span>
+    </div>
+    <div class="status" id="statusPill" title="ComfyUI 连接状态">
+      <i class="dot"></i><span id="statusText">未连接</span>
+    </div>
+    <button class="icon-btn" id="btnCleanQuick" title="清理缓存和临时目录（点两次确认）"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9.5 7V5.2c0-.66.54-1.2 1.2-1.2h2.6c.66 0 1.2.54 1.2 1.2V7M6.5 7l.9 12.1c.06.72.66 1.3 1.4 1.3h6.4c.73 0 1.33-.58 1.4-1.3L17.5 7M10.2 11v5.6M13.8 11v5.6"/></svg></button>
+    <button class="icon-btn" id="btnSettings" title="设置">⚙</button>
+  </header>
+
+  <div class="conn" id="connBar">
+    <input id="serverInput" class="in" spellcheck="false" value="http://127.0.0.1:8188" />
+    <button class="btn sm" id="btnConnect">连接</button>
+    <button class="btn sm ghost" id="btnLaunch" title="启动本机 ComfyUI（桌面版或 main.py）">▶ 启动</button>
+  </div>
+
+  <div class="viewbar" id="viewbar">
+    <button class="vtab active" data-view="anime">✦ 二次元工坊</button>
+    <button class="vtab locked" data-view="nsfw" title="🔞 18+ 内容：点击查看并同意免责条款后解锁">🔒 NSFW</button>
+  </div>
+
+  <div class="modebar" id="modebar">
+    <select id="modeSelect" class="mode-sel" aria-label="生成模式" title="生成模式：默认由你选的功能自动决定，也可以在这里手动改">
+      <option value="txt2img">文生图</option>
+      <option value="edit">图生图</option>
+      <option value="inpaint">局部重绘</option>
+      <option value="upscale">放大</option>
+      <option value="custom">自定义</option>
+    </select>
+    <button class="mode-follow hidden" id="btnModeFollow" title="恢复「跟随所选功能」：点功能卡时自动切换模式">跟随</button>
+    <span class="hint" id="modeHint"></span>
+  </div>
+
+  <main class="scroll" id="scroll">
+
+    <div id="viewAnime">
+      <section class="card anime" id="animeCard">
+        <div class="ws-head" id="animeHead">
+          <div class="ws-title">
+            <span class="lbl">✦ 二次元工坊</span>
+            <span class="ws-cnt" id="animeCount">31</span>
+          </div>
+          <div class="ws-sub" id="animeSub">选一个功能：模式、提示词、参数会自动配好</div>
+        </div>
+        <div class="ws-body">
+          <div class="ws-tools">
+            <div class="search">
+              <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.6" cy="10.6" r="6.1"/><path d="M15.2 15.2 20 20"/></svg>
+              <input id="animeSearch" class="in" spellcheck="false" placeholder="搜索功能 / 关键词" />
+              <button class="icon-btn hidden" id="animeSearchClear" title="清空搜索" tabindex="-1">✕</button>
+            </div>
+            <label class="switch" title="选完功能直接开始生成">
+              <input type="checkbox" id="setPresetRunAnime" /><i></i><span>直接生成</span>
+            </label>
+          </div>
+          <div class="segs cats" id="animeCats"></div>
+          <div id="animeGrid"></div>
+          <div class="tiny anime-tip" id="animeTip">选一个功能：模式、提示词、参数会自动配好</div>
+        </div>
+
+        <div class="anime-extra hidden" id="animeExtra">
+          <div class="row" id="fillRow">
+            <span class="lbl" id="fillLabel">背景</span>
+            <input id="fillInput" class="in" placeholder="" />
+            <button class="btn sm" id="btnFillApply">应用</button>
+          </div>
+          <div class="chips" id="fillChips"></div>
+          <div class="row hidden" id="bgRow">
+            <span class="lbl" id="bgLabel">背景图</span>
+            <input id="bgPath" class="in" readonly placeholder="选一张图" />
+            <button class="btn sm" id="btnPickBg">选择</button>
+          </div>
+          <div class="dropzone hidden" id="dropZone">
+            <span class="dz-icon">⬇</span>
+            <span class="dz-text" id="dropHint">把图片直接拖到这里</span>
+          </div>
+        </div>
+
+      </section>
+    </div>
+
+    <div id="viewNsfw" class="hidden">
+      <section class="card nsfw" id="nsfwCard">
+        <div class="ws-head" id="nsfwHead">
+          <div class="ws-title">
+            <span class="lbl">🔞 NSFW 工坊</span>
+            <span class="ws-cnt" id="nsfwCount">30</span>
+          </div>
+          <button class="icon-btn" id="btnNsfwLock" title="撤回同意，重新锁上" tabindex="-1"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.8" y="10.4" width="14.4" height="9.4" rx="2.2"/><path d="M8.2 10.4V7.9a3.8 3.8 0 0 1 7.6 0v2.5"/></svg></button>
+          <div class="ws-sub" id="nsfwSub">选一个功能：模式、提示词、参数会自动配好（仅限成年角色）</div>
+        </div>
+        <div class="ws-body">
+          <div class="nsfw-warn">
+            🔞 <b>仅限 18 岁以上成年人</b>。内容由本机模型生成、不上传云端；禁止生成涉及未成年人的内容；请遵守所在地法律法规，一切后果自行承担。
+          </div>
+          <div class="ws-tools">
+            <div class="search">
+              <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.6" cy="10.6" r="6.1"/><path d="M15.2 15.2 20 20"/></svg>
+              <input id="nsfwSearch" class="in" spellcheck="false" placeholder="搜索功能 / 关键词" />
+              <button class="icon-btn hidden" id="nsfwSearchClear" title="清空搜索" tabindex="-1">✕</button>
+            </div>
+          </div>
+          <div class="segs cats nsfw-cats" id="nsfwCats"></div>
+          <div class="nsfw-grid" id="nsfwGrid"></div>
+          <div class="tiny anime-tip" id="nsfwTip">选一个功能：模式、提示词、参数会自动配好（仅限成年角色）</div>
+        </div>
+
+        <div class="anime-extra nsfw-extra hidden" id="nsfwExtra">
+          <div class="row" id="nsfwFillRow">
+            <span class="lbl" id="nsfwFillLabel">目标罩杯</span>
+            <input id="nsfwFillInput" class="in" placeholder="" />
+            <button class="btn sm" id="btnNsfwFillApply">应用</button>
+          </div>
+          <div class="chips" id="nsfwFillChips"></div>
+        </div>
+      </section>
+    </div>
+
+    <section class="card">
+      <div class="row">
+        <span class="lbl">模型</span>
+        <select id="archSelect" class="in">
+          <option value="qwen">Qwen-Image</option>
+          <option value="sd">SD / SDXL</option>
+        </select>
+        <button class="icon-btn" id="btnRefreshModels" title="重新读取 ComfyUI 模型列表">↻</button>
+      </div>
+      <div class="slots" id="modelSlots"></div>
+      <div class="row hidden" id="customRow">
+        <span class="lbl">工作流</span>
+        <input id="customPath" class="in" readonly placeholder="选择一个 API 格式 JSON" />
+        <button class="btn sm" id="btnPickWorkflow">选择</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="row between">
+        <label class="lbl" for="prompt">提示词</label>
+        <span class="tiny" id="promptHint">描述要改成什么样</span>
+      </div>
+      <textarea id="prompt" class="ta" rows="4" placeholder="例：把背景换成雨夜的霓虹街道，保留人物姿势和光线"></textarea>
+      <details class="neg">
+        <summary>反向提示词</summary>
+        <textarea id="negative" class="ta sm" rows="2" placeholder="（可留空）"></textarea>
+      </details>
+      <div class="chips" id="chips"></div>
+    </section>
+
+    <section class="card params">
+      <div class="params-head">
+        <span class="lbl">参数</span>
+        <button class="btn sm ghost" id="btnParamsTune" title="按本机显卡 / 显存填一组能跑稳的值">⚡ 按本机推荐</button>
+      </div>
+      <div class="pgrid" id="pgrid">
+        <label class="fld"><span>步数</span><input id="pSteps" class="in" type="number" min="1" max="150" value="30" /></label>
+        <label class="fld"><span>CFG</span><input id="pCfg" class="in" type="number" min="0" max="30" step="0.5" value="1" /></label>
+        <label class="fld"><span>采样器</span><select id="pSampler" class="in"></select></label>
+        <label class="fld"><span>调度器</span><select id="pScheduler" class="in"></select></label>
+        <label class="fld" id="fldRes"><span>参考分辨率</span>
+          <select id="pResolution" class="in">
+            <option value="768">768</option>
+            <option value="1024" selected>1024</option>
+            <option value="1280">1280</option>
+            <option value="1536">1536</option>
+          </select>
+        </label>
+        <label class="fld hidden" id="fldSize"><span>尺寸</span>
+          <span class="duo"><input id="pWidth" class="in" type="number" value="1024" /><input id="pHeight" class="in" type="number" value="1024" /></span>
+        </label>
+        <label class="fld" id="fldSeed"><span>种子</span>
+          <span class="duo"><input id="pSeed" class="in" type="number" value="-1" /><button class="icon-btn tiny-btn" id="btnDice" title="随机种子">🎲</button></span>
+        </label>
+        <label class="fld hidden" id="fldDenoise"><span>重绘强度</span><input id="pDenoise" class="in" type="number" min="0" max="1" step="0.05" value="0.6" /></label>
+        <label class="fld hidden" id="fldScale"><span>放大倍率</span>
+          <select id="pScale" class="in"><option value="2">2×</option><option value="3">3×</option><option value="4">4×</option></select>
+        </label>
+        <label class="fld hidden" id="fldFeather"><span>羽化 px</span><input id="pFeather" class="in" type="number" min="0" max="200" value="8" /></label>
+        <label class="fld hidden" id="fldExpand"><span>扩展 px</span><input id="pExpand" class="in" type="number" min="0" max="200" value="0" /></label>
+      </div>
+    </section>
+
+
+    <section class="card results" id="resultsCard">
+      <div class="row between">
+        <span class="lbl">结果</span>
+        <span class="tiny" id="resultMeta">还没有结果</span>
+      </div>
+      <div class="preview" id="previewBox">
+        <div class="empty" id="previewEmpty">
+          <span class="empty-ic">◈</span>
+          <span>生成后在这里预览</span>
+          <span class="tiny">生成完可以点图全屏看细节</span>
+        </div>
+        <img id="previewImg" alt="" class="hidden" />
+      </div>
+      <div class="pactions">
+        <button class="btn sm" id="btnPlaceLayer" disabled>插入图层</button>
+        <button class="btn sm" id="btnPlaceDoc" disabled>新文档</button>
+        <button class="btn sm ghost" id="btnReveal" disabled>打开文件</button>
+      </div>
+      <div class="thumbs" id="thumbs"></div>
+    </section>
+
+    <footer class="logwrap" id="logWrap">
+      <div class="loghead" id="logToggle">
+        <span>日志</span>
+        <span class="tiny" id="logLast"></span>
+        <button class="icon-btn" id="btnLogClear" title="清空日志" tabindex="-1">✕</button>
+        <span class="caret">▾</span>
+      </div>
+      <pre class="log" id="log"></pre>
+    </footer>
+
+    <div class="spacer"></div>
+  </main>
+
+  <div class="runbar">
+    <button class="btn primary" id="btnRun"><span>✦</span> 生成</button>
+    <button class="btn ghost" id="btnCancel" disabled>取消</button>
+  </div>
+
+  <div class="progress hidden" id="progressWrap">
+    <div class="pbar"><i id="progressBar"></i></div>
+    <span class="ptime" id="progressText">准备中…</span>
+  </div>
+
+  <div class="drawer" id="drawer">
+    <div class="drawer-head">
+      <span>设置</span>
+      <button class="icon-btn" id="btnCloseDrawer">✕</button>
+    </div>
+    <div class="drawer-body">
+      <div class="dsec">连接</div>
+      <label class="fld col"><span>ComfyUI 地址</span><input id="setServer" class="in" spellcheck="false" /></label>
+      <label class="fld col"><span>等待超时（分钟）</span><input id="setTimeout" class="in" type="number" min="1" max="120" value="15" /></label>
+      <label class="fld col"><span>ComfyUI 路径（桌面版 exe 或 ComfyUI 目录，留空自动检测）</span>
+        <span class="duo"><input id="setComfyPath" class="in" spellcheck="false" placeholder="自动检测" /><button class="btn sm" id="btnPickComfy">选择</button></span>
+      </label>
+      <label class="fld col"><span>启动方式</span>
+        <select id="setLaunchKind" class="in">
+          <option value="auto">自动（优先桌面版，失败转无头）</option>
+          <option value="desktop">只用桌面版</option>
+          <option value="headless">只用无头模式</option>
+        </select>
+      </label>
+      <label class="chk"><input type="checkbox" id="setAutoLaunch" /> 没连上时自动启动 ComfyUI</label>
+      <div class="dsec">生成</div>
+      <label class="chk"><input type="checkbox" id="setAutoPlace" checked /> 生成后自动插入为新图层</label>
+      <label class="chk"><input type="checkbox" id="setSkipAi" checked /> 生成时跳过之前贴回的 AI 图层</label>
+      <div class="tiny" style="margin:-5px 0 9px 22px;line-height:1.5">开着 = 每次都从原始底图画；关掉才会在上一张结果上继续改（容易把上一张的水印 / 噪点带进来）</div>
+      <label class="chk"><input type="checkbox" id="setVerbose" /> 详细日志</label>
+      <label class="fld col"><span>导出长边（px，越大越清晰也越吃显存；放大模式不受影响）</span>
+        <input id="setMaxEdge" class="in" type="number" min="512" max="8192" step="128" value="2048" />
+      </label>
+
+      <div class="hw" id="hwBox">
+        <div class="tiny" id="hwInfo">显卡：未检测（先连上 ComfyUI）</div>
+        <div class="row" style="margin-top:6px">
+          <button class="btn sm" id="btnAutoTune">按本机自动调参</button>
+          <label class="chk inline" style="margin:0"><input type="checkbox" id="setAutoTune" checked /> 连接时自动</label>
+        </div>
+        <div class="tiny" id="autoTuneTip">连上 ComfyUI 后会自动识别显卡</div>
+      </div>
+
+      <div class="dsec">维护</div>
+      <div class="maint">
+        <div class="maint-head">
+          <span>清理与自检</span>
+          <span class="tiny" id="cleanInfo">正在统计…</span>
+        </div>
+        <button class="btn sm danger" id="btnCleanCache" title="删除面板临时文件和 ComfyUI input 里的上传残留（只删 Stars-AI 自己产生的）">
+          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9.5 7V5.2c0-.66.54-1.2 1.2-1.2h2.6c.66 0 1.2.54 1.2 1.2V7M6.5 7l.9 12.1c.06.72.66 1.3 1.4 1.3h6.4c.73 0 1.33-.58 1.4-1.3L17.5 7M10.2 11v5.6M13.8 11v5.6"/></svg> 清理缓存和临时目录
+        </button>
+        <button class="btn sm ghost" id="btnSelfTest" title="在文档副本上把写回链路跑一遍：不修改、不删除你的任何像素">
+          🩺 自检写回链路（不修改文档）
+        </button>
+        <div class="tiny" id="cleanTip">只删 Stars-AI 自己产生的文件（<code>src_*.png</code> / <code>out_*.png</code> / <code>starsai_*.png</code>）；临时目录里的 <code>extra_model_paths.yaml</code> 会保留。点两次确认。</div>
+      </div>
+
+      <div class="dsec">帮助</div>
+      <details class="help" id="helpStart">
+        <summary>📖 使用说明（30 秒上手）</summary>
+        <div class="help-body">
+          <ol>
+            <li>先开 ComfyUI（默认 <code>127.0.0.1:8188</code>），面板顶部点「连接」。状态灯变绿、模型槽自动填好就说明通了（连不上可点「▶ 启动」）。</li>
+            <li>在 PS 里打开一张底图（大部分功能都要底图；纯「文生图」可以不打开）。</li>
+            <li>选一个工坊：<b>✦ 二次元工坊</b> / <b>🔞 NSFW</b>（需先同意 18+ 条款）；每个工坊里再按顶部分类（画风 / Q 版 / 背景场景 / 服装 / 画质 …）挑选。</li>
+            <li>点一张功能卡 → 模式、提示词、参数自动填好，都可以再改。提示词用祈使句最稳，例如「把背景换成雨夜街道，保留人物姿势」。</li>
+            <li>点底部「生成」。出图后自动插成新图层，原图不动；也可以在「结果」里点「新文档」。</li>
+            <li>不满意：点 🎲 换种子 / 参考分辨率升一档 / 把要求写得更具体。想一键出图就勾卡片上的「选完直接生成」。</li>
+          </ol>
+          <h4>三个小技巧</h4>
+          <ul>
+            <li><b>指令式写法</b>比形容词堆叠准：「把 A 换成 B，保留脸和姿势」。</li>
+            <li><b>局部重绘</b>先用选框圈住要改的地方：Qwen 看不到选区，面板会把<b>选区位置和占比自动补进提示词</b>，合成时再用图层蒙版隔离（边缘按画布大小自动羽化）。</li>
+            <li>「🧷 图片融合」可以把物体图<b>直接拖进面板</b>，不用点选择。</li>
+          </ul>
+        </div>
+      </details>
+
+      <details class="help" id="helpModels">
+        <summary>⬇ 模型下载与安装</summary>
+        <div class="help-body">
+          <p>模型全部放在 ComfyUI 的 <code>models\</code> 下；放完点面板的「↻ 重新读取模型列表」（必要时重启 ComfyUI）。文件名不用改，<b>放进对应目录</b>就会被识别。</p>
+          <table>
+            <tr><th>用途</th><th>放哪</th><th>文件名示例 / 说明</th></tr>
+            <tr><td>主模型（Qwen）</td><td><code>models\diffusion_models\</code></td><td>qwen-image-2.1-int8-*.safetensors（8G 选 int8，16G+ 可 bf16）</td></tr>
+            <tr><td>文本编码器</td><td><code>models\text_encoders\</code></td><td>qwen3vl_8b_int8-*.safetensors <span class="warn-line">（别拿 32B 那个，是视频用的）</span></td></tr>
+            <tr><td>VAE</td><td><code>models\vae\</code></td><td>qwen_image_2.1_vae_bf16.safetensors</td></tr>
+            <tr><td>SD / SDXL（备选）</td><td><code>models\checkpoints\</code></td><td>sd_xl_base_1.0.safetensors</td></tr>
+            <tr><td>放大模型</td><td><code>models\upscale_models\</code></td><td>RealESRGAN_x4plus.pth（通用）/ _anime_6B.pth（二次元）</td></tr>
+            <tr><td>抠图（Q 版小人）</td><td><code>models\background_removal\</code></td><td>birefnet.safetensors</td></tr>
+            <tr><td>LoRA（可选）</td><td><code>models\loras\</code></td><td>面板会自动匹配与主模型同名的 LoRA</td></tr>
+          </table>
+          <h4>去哪下载</h4>
+          <ul>
+            <li>Qwen-Image 2.1：HuggingFace 搜 <code>Comfy-Org/Qwen-Image_ComfyUI</code>（含 split_files 三件套）；量化版搜 <code>city96</code> 的 int8/gguf 仓库。</li>
+            <li>SD / SDXL：<code>stabilityai/stable-diffusion-xl-base-1.0</code>。</li>
+            <li>放大 / 抠图：搜 <code>RealESRGAN</code>、<code>BiRefNet</code>；ComfyUI 管理器的 Model Manager 也能一键装。</li>
+            <li>国内下载慢：可用魔搭 ModelScope，或让 ComfyUI 管理器挂镜像。</li>
+          </ul>
+          <h4>放完还是看不到？</h4>
+          <ul>
+            <li>目录名要完全一致：Qwen 的 UNET 是 <code>diffusion_models</code>，不是 <code>unet</code> 也不是 <code>checkpoints</code>。</li>
+            <li>桌面版把模型放在共享目录 <code>ComfyUI-Shared\models</code>，无头模式需要它挂进去（面板启动器会自动生成 extra_model_paths.yaml）。</li>
+            <li>点「↻ 重新读取模型列表」不生效 → 重启 ComfyUI。</li>
+          </ul>
+        </div>
+      </details>
+
+      <details class="help" id="helpTiers">
+        <summary>🎛 显卡 / 显存 → 推荐参数</summary>
+        <div class="help-body">
+          <p>下表是「能跑稳」的经验值，点上面「按本机自动调参」会直接照这个填。核心矛盾只有一个：<b>显存</b>。</p>
+          <table>
+            <tr><th>显存档</th><th>常见显卡</th><th>参考分辨率</th><th>步数</th><th>导出长边</th></tr>
+            <tr><td>≤6G</td><td>RTX 3050 Laptop / 2060 6G / 1660Ti</td><td>768</td><td>20</td><td>1536</td></tr>
+            <tr><td>8G</td><td>RTX 3060Ti / 3070 / 4060 / 4060Ti / <b>4070 Laptop</b></td><td>1024</td><td>24–30</td><td>2048</td></tr>
+            <tr><td>12G</td><td>RTX 3060 12G / 4070 / 4070S</td><td>1280</td><td>30</td><td>2560</td></tr>
+            <tr><td>16G</td><td>RTX 4060Ti 16G / 4080 / 5070Ti</td><td>1536</td><td>30</td><td>3072</td></tr>
+            <tr><td>24G+</td><td>RTX 3090 / 4090 / 5090</td><td>1536</td><td>30–40</td><td>4096</td></tr>
+          </table>
+          <p class="tiny">本机参考：RTX 4070 Laptop 8G + Qwen-Image 2.1 int8，1024 / 24 步 ≈ 33s；1024 / 12 步 ≈ 17s。显存不够时的典型症状是生成到一半 ComfyUI 进程直接退出。</p>
+          <h4>其它参数怎么配</h4>
+          <ul>
+            <li><b>CFG</b>：Qwen-Image 固定 <code>1</code>（再高会糊/发灰）；SD/SDXL 用 <code>6–7</code>。</li>
+            <li><b>负面提示词只在 CFG &gt; 1 时起作用</b>：Qwen 用 cfg=1，负面词不参与采样（切到 SD 架构才会生效）。预设里已经按这个前提写好，正常使用不用管它。</li>
+            <li><b>采样器</b>：Qwen 用 <code>euler / simple</code>；SDXL 用 <code>dpmpp_2m / karras</code>。</li>
+            <li><b>步数</b>：Qwen 让 24–30（低于 20 细节虚）；SD 20–28。</li>
+            <li><b>重绘强度</b>（SD 图生图/局部重绘）：想保留原图 0.35–0.5，想大改 0.6–0.75。</li>
+            <li><b>羽化 / 扩展</b>（局部重绘）：羽化 8–16、扩展 4–8，边缘才不会硬切。</li>
+            <li><b>放大</b>：目标长边尽量 ≤ 4096（8G 卡），越大越容易 OOM。</li>
+          </ul>
+        </div>
+      </details>
+
+      <details class="help" id="helpTrouble">
+        <summary>🩺 常见现象 → 该调什么</summary>
+        <div class="help-body">
+          <table>
+            <tr><th>现象</th><th>先动这里</th></tr>
+            <tr><td>生成到一半 ComfyUI 退出 / 面板提示「进程挂了」</td><td>参考分辨率降一档（1024→768）、导出长边 −512；放大目标降到 4096 内</td></tr>
+            <tr><td>出图糊、细节不够</td><td>参考分辨率升一档；步数 24→30；提示词补材质/光线描述</td></tr>
+            <tr><td>一张要等太久</td><td>步数降到 20–24；分辨率降一档；关掉「4×」改 2×</td></tr>
+            <tr><td>图生图和原图差太远</td><td>提示词写清「保留脸/姿势/背景不变」；分辨率先降一档看构图</td></tr>
+            <tr><td>局部重绘边缘生硬</td><td>羽化 8–16、扩展 4–8；提示词点明「只改选区内的 XX」</td></tr>
+            <tr><td>Q 版小人出来是白底 / 空白</td><td>提示词里的「纯白背景、不要投影」别删；面板会提示「没检测到成片白底」</td></tr>
+            <tr><td>模型槽是空的 / 没有新放的模型</td><td>点「↻ 重新读取模型列表」；还不行重启 ComfyUI；再检查目录名</td></tr>
+            <tr><td>连接一直「未连接」</td><td>ComfyUI 没开 / 端口不是 8188 / 防火墙拦了 127.0.0.1</td></tr>
+          </table>
+        </div>
+      </details>
+      <div class="about">
+        <div><b id="aboutVer">Stars-AI v0.7.40</b> · Photoshop × ComfyUI</div>
+        <div class="tiny" id="aboutTemp">临时目录：—</div>
+        <div class="tiny" id="aboutServer">ComfyUI：—</div>
+      </div>
+      <button class="btn ghost sm" id="btnDiag" style="width:100%;margin-bottom:7px">自检 PS 状态（排错用，结果写在日志里）</button>
+      <button class="btn ghost sm" id="btnReloadJsx" style="width:100%;margin-bottom:7px">重载 PS 脚本（改完 jsx 免重启 PS）</button>
+      <button class="btn ghost sm" id="btnReset" style="width:100%">恢复默认参数</button>
+    </div>
+  </div>
+
+  <div class="gate hidden" id="nsfwGate">
+    <div class="gate-box">
+      <div class="gate-head">🔞 18+ 免责声明</div>
+      <div class="gate-body" id="nsfwGateBody">
+        <p>「NSFW 工坊」会调用你本机的 ComfyUI 模型生成<b>成人向（18+ / NSFW）</b>图像。进入前请逐条确认：</p>
+        <ol>
+          <li>本功能<b>仅限已满 18 周岁的成年人</b>使用。未满 18 周岁请立即关闭本面板并停止使用。</li>
+          <li>严禁生成、传播任何涉及未成年人的性相关内容（包括"童颜 / 幼态 / 学生"等暗示）。违反者后果自负，与本插件作者无关。</li>
+          <li>所有内容由你本机的模型与本机操作产生，<b>不会上传到任何云端服务</b>；请自行承担使用后果与全部法律责任，并遵守你所在地的法律法规。</li>
+          <li>请勿用于传播、牟利，或处理未经他人同意的真人肖像。</li>
+          <li>作者与插件不对生成的内容及其用途承担任何责任。同意后你可以在 NSFW 工坊里点「锁定」随时撤回。</li>
+        </ol>
+        <label class="gate-chk"><input type="checkbox" id="nsfwAgree" /> 我已年满 18 周岁，并已阅读、理解并同意上述全部条款</label>
+      </div>
+      <div class="gate-foot">
+        <button class="btn sm ghost" id="btnNsfwCancel">取消</button>
+        <button class="btn sm primary" id="btnNsfwAccept" disabled>同意并进入</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="lightbox hidden" id="lightbox">
+    <img id="lightboxImg" alt="" />
+    <div class="lb-tip">点击任意处 / 按 Esc 关闭</div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<script src="js/CSInterface.js"></script>
+<script src="js/comfy.js"></script>
+<script src="js/workflows.js"></script>
+<script src="js/presets.js"></script>
+<script src="js/png.js"></script>
+<script src="js/bridge.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
