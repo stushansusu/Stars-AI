@@ -1,12 +1,9 @@
-/* Stars-AI · Photoshop 端脚本（ExtendScript / ES3）
- * 只做四件事：读文档信息、导出当前图 PNG、导出选区蒙版 PNG、把结果放进 PS。
- * 所有返回值都是 JSON 字符串，方便 CEP 面板直接 JSON.parse。
- */
+﻿/* #1 */
 var StarsAI = (function () {
   var MAX_LOG = 0;
-  var JSX_BUILD = '0.7.40';
+  var JSX_BUILD = '0.7.58';
 
-  /* ---------- 极简 JSON ---------- */
+  /* #2 */
   function qstr(s) {
     s = String(s);
     var out = '"';
@@ -55,8 +52,8 @@ var StarsAI = (function () {
   }
   function parseOpts(s) {
     if (!s) return {};
-    // CEP 的 evalScript 把参数作为真正的 JS 对象传进来；只有字符串时才需要 eval。
-    // 以前这里无条件 eval(object)，失败被吞掉 → 所有选项（图层名/target/羽化…）都变成空。
+//#55
+//#56
     if (typeof s === 'object') return s;
     try { return eval('(' + s + ')'); } catch (e) { return {}; }
   }
@@ -64,7 +61,7 @@ var StarsAI = (function () {
     try { return Number(u.as('px')); } catch (e) { return Number(u); }
   }
 
-  /* ---------- 工具 ---------- */
+  /* #3 */
   function activeDoc() {
     if (app.documents.length === 0) return null;
     return app.activeDocument;
@@ -74,9 +71,9 @@ var StarsAI = (function () {
       var b = doc.selection.bounds;
       if (b === null || b === undefined || b.length !== 4) return false;
       var l = px(b[0]), t = px(b[1]), r = px(b[2]), bt = px(b[3]);
-      // 空矩形（某些 PS 版本在没有选区时返回 [0,0,0,0]）
+//#74
       if (!(r - l > 0.5 && bt - t > 0.5)) return false;
-      // 整幅画布 = 没有真正框选（有的版本"无选区"会直接返回画布尺寸）
+//#76
       try {
         var dw = px(doc.width), dh = px(doc.height);
         if (l <= 0.5 && t <= 0.5 && r >= dw - 0.5 && bt >= dh - 0.5) return false;
@@ -105,21 +102,8 @@ var StarsAI = (function () {
     o.compression = 6;
     doc.saveAs(file, o, true);
   }
-  /* 在「已经裁好 / 缩好」的临时文档里，把当前选区烧成一张黑白蒙版 PNG（白 = 重绘区）。
-   * 为什么在同一个 dup 里做：保证蒙版和送出去的那张图**像素级对齐**（同一次 crop/resize）。
-   * ⚠ 会毁掉 dup 的像素，所以必须在保存完图片之后再调用；dup 是副本，无所谓。
-   * 极性：白 = 要重绘（和 VAEEncodeForInpaint、LoadImageMask 的约定一致）。
-   * 0.7.19 起这条路径是局部重绘的主力：蒙版进 ComfyUI 做 alpha 合成，
-   * PS 侧不再需要「反选 + Dlt」（那在 PS 27.10 上实测不可用）。 */
-  /* 0.7.31：把当前选区直接烧成黑白像素（白 = 重绘区），**完全不碰通道**。
-   * 为什么改：以前是 channels.add() → selection.store → （裁剪/缩放）→ channel`.loadSelection()`。
-   * `Channel.loadSelection()` 并不是 Photoshop 脚本 API 里的标准方法
-   * （标准写法是 `selection.load(channel, SelectionType.REPLACE)`），一旦它不存在，
-   * 蒙版就永远失败、只能退到「外接矩形」—— 套索 / 魔棒画的形状被抹成方块，正是用户看到的现象。
-   * 现在只用到 invert + fill 两个一定存在的操作：
-   *   1) 反选 → 把「选区外」涂黑
-   *   2) 再反选回原选区 → 把「选区内」涂白
-   * 羽化会跟着 invert 一起保留，所以边缘仍是柔的；全画布选区时反选为空，填充是 no-op，结果仍是全白。 */
+  /* #4 */
+  /* #5 0.7.31：把当前选区直接烧成黑白像素（白 = 重绘区），**完全不碰通道**。 */
   function hasAnySelection(doc) {
     try {
       var b = doc.selection.bounds;
@@ -129,11 +113,11 @@ var StarsAI = (function () {
   }
 
   function burnMaskOnDoc(doc) {
-    // ⚠ 没有选区时 invert 会全选 → 整张蒙版变成全黑（合成后整块透明）。必须先挡住。
+//#116
     if (!hasAnySelection(doc)) throw new Error('选区不在了，做不了蒙版');
     var sel = doc.selection;
     sel.invert();
-    // 选区铺满整幅时反选为空，这里 fill 是 no-op（有的版本会抛，吞掉即可，后面的白填会盖满）
+//#120
     try { sel.fill(solid(0, 0, 0), ColorBlendMode.NORMAL, 100, false); } catch (eBlack) {}
     sel.invert();
     sel.fill(solid(255, 255, 255), ColorBlendMode.NORMAL, 100, false);
@@ -143,7 +127,7 @@ var StarsAI = (function () {
   function saveMaskFromDup(dup, path) {
     var f = new File(path);
     if (f.parent && !f.parent.exists) f.parent.create();
-    burnMaskOnDoc(dup);   // 里面自带「选区还在吗」的检查
+    burnMaskOnDoc(dup);
     savePNG(dup, f);
     if (!f.exists || f.length <= 0) throw new Error('蒙版没写出来：' + f.fsName);
     return { path: f.fsName, width: Math.round(px(dup.width)), height: Math.round(px(dup.height)) };
@@ -154,11 +138,7 @@ var StarsAI = (function () {
     c.rgb.red = r; c.rgb.green = g; c.rgb.blue = b;
     return c;
   }
-  /* 0.7.40：导出前把「之前贴回来的结果图层」藏起来。
-   * 为什么：place() 贴回来的图层叫 "Stars-AI · xxx"，它会留在画布上；下一次生成把整张画布
-   * flatten 出去，等于把上一张 AI 图当参考图喂给模型 —— 上一张的水印/噪点会被当成内容再画一遍，
-   * 越滚越脏（真机数据：第二次的 src 中心区域和第一张出图逐像素一致）。
-   * 只在 dup 上隐藏，用户文档一像素不动；全隐会导出空白，所以有兜底。 */
+  /* #6 */
   function hideAiLayers(doc) {
     var hid = [], visible = 0;
     function walk(parent) {
@@ -175,7 +155,7 @@ var StarsAI = (function () {
       } catch (e2) {}
     }
     walk(doc);
-    if (visible === 0) {          // 整张只剩 AI 图层：全隐就等于导出一张空白，恢复原样
+    if (visible === 0) {
       for (var k = 0; k < hid.length; k++) { try { hid[k].visible = true; } catch (e3) {} }
       return 0;
     }
@@ -186,9 +166,7 @@ var StarsAI = (function () {
     try { if (doc.mode !== DocumentMode.RGB) doc.changeMode(ChangeMode.RGB); } catch (e) {}
     try { if (doc.bitsPerChannel !== BitsPerChannelType.EIGHT) doc.bitsPerChannel = BitsPerChannelType.EIGHT; } catch (e) {}
   }
-  /* 按图层 id 在文档里找图层（含组内）。
-   * 为什么要它：document.activeLayer 不一定是"刚复制进来的那个图层"，
-   * 盲目信任它会导致后面的重命名/缩放/删除作用到用户自己的图层上（事故级）。 */
+  /* #7 */
   function findLayerById(parent, id) {
     try {
       for (var i = 0; i < parent.layers.length; i++) {
@@ -209,8 +187,7 @@ var StarsAI = (function () {
   function layerIdOf(layer) {
     try { return layer.id; } catch (e) { return null; }
   }
-  /* 图层的像素边界 [x1,y1,x2,y2]，全部换算成整数 px（比较/打日志用）。
-   * 拿不到就返回 null —— 调用方必须能处理 null，别让它静默变成 NaN。 */
+  /* #8 */
   function numericBounds(layer) {
     try {
       var b = layer.bounds;
@@ -222,7 +199,7 @@ var StarsAI = (function () {
     if (!b) return null;
     return { w: b[2] - b[0], h: b[3] - b[1] };
   }
-  /* 递归找文档里第一个像素图层（跳过图层组）。探针需要一个“有像素、能随便弄坏”的图层用。 */
+  /* #9 */
   function findArtLayer(layers) {
     try {
       for (var i = 0; i < layers.length; i++) {
@@ -237,19 +214,13 @@ var StarsAI = (function () {
     return null;
   }
 
-  /* 把一个图层设为「活动图层」，并**确认真的切过去了**（0.7.9）。
-   * 为什么需要多路尝试：doc.activeLayer = layer 在某些文档结构下会静默失败
-   * （图层落在折叠的图层组里、文档开着「自动选择」等）。一旦失败：
-   *   → 紧接着的 resize/translate 作用到用户原来的图层（往往是背景层）上
-   *   → PS 弹「命令"变换"当前不可用」模态框，脚本卡住十几秒
-   *   → 图层尺寸没变，后面按选区裁切自然无效（用户看到的就是「整张图」）
-   * 这是 0.7.3~0.7.8 一系列怪象的最后一块拼图。 */
+  /* #10 把一个图层设为「活动图层」，并**确认真的切过去了**（0.7.9）。 */
   function makeActive(doc, layer, id) {
     if (id === null || id === undefined) id = layerIdOf(layer);
     try { doc.activeLayer = layer; } catch (e1) {}
-    if (id === null || id === undefined) return true;        // 拿不到 id 就没法验证，维持旧行为
+    if (id === null || id === undefined) return true;
     try { if (doc.activeLayer.id === id) return true; } catch (e2) {}
-    // 第二招：在组里就先提到文档顶层，再选一次
+//#223
     try {
       var p = null;
       try { p = layer.parent; } catch (e3) {}
@@ -257,7 +228,7 @@ var StarsAI = (function () {
     } catch (e4) {}
     try { doc.activeLayer = layer; } catch (e5) {}
     try { if (doc.activeLayer.id === id) return true; } catch (e6) {}
-    // 第三招：ActionManager 按 id 选图层
+//#231
     try {
       var d = new ActionDescriptor();
       var r = new ActionReference();
@@ -269,38 +240,31 @@ var StarsAI = (function () {
     return false;
   }
 
-  /* 变换（resize / translate）前的前置检查。
-   * Photoshop 在这些状态下会弹「命令"变换"当前不可用」的模态框：
-   *   - 图层是背景层 / 被锁定（All Locked、位置锁定）
-   *   - 文档处于快速蒙版
-   *   - 活动通道不是复合通道（在编辑某个 alpha 通道）
-   * 能自动修的（快速蒙版、锁定、通道）就修掉，修不好的把原因带回去给面板显示。 */
+  /* #11 */
   function prepareForTransform(doc, layer) {
     var issues = [];
 
     try { if (doc.quickMaskMode) doc.quickMaskMode = false; } catch (e1) {}
 
-    // 通道必须在复合通道上
+//#249
     if (!selectComposite(doc)) issues.push('无法切回复合通道');
 
     try { if (layer.isBackgroundLayer) issues.push('目标图层是背景层'); } catch (e2) {}
 
-    // 尝试解除锁定（背景层无法解除，会走到上面的分支）
+//#254
     try { if (layer.allLocked) { layer.allLocked = false; } } catch (e3) {}
     try { if (layer.positionLocked) { layer.positionLocked = false; } } catch (e4) {}
     try { if (layer.allLocked) issues.push('图层被完全锁定'); } catch (e5) {}
     try { if (layer.positionLocked) issues.push('图层位置被锁定'); } catch (e6) {}
 
-    // 让它在文档里成为活动图层（很多 PS 版本要求这样变换才生效）
-    // 0.7.9：改成「多路尝试 + 验证」，并且失败要作为 issue 带回去 —— 静默失败正是历史事故的根源
+//#260
+//#261
     if (!makeActive(doc, layer, layerIdOf(layer))) issues.push('无法把新图层设为活动图层（可能它在折叠的图层组里）');
 
     return issues;
   }
 
-  /* 强制把文档切回“复合通道”视图。
-   * 为什么必须做：一旦活动通道落在 alpha 通道上，画布就会显示成灰度图（用户看到的就是“PS 变黑白了”）。
-   * 先用属性赋值，失败再用 ActionManager 的 slct/Cmps。 */
+  /* #12 */
   function selectComposite(doc) {
     try {
       if (doc.channels.length) { doc.activeChannels = [doc.channels[0]]; return true; }
@@ -315,7 +279,6 @@ var StarsAI = (function () {
     } catch (e2) { return false; }
   }
 
-
   function fitToDoc(layer, doc, mode) {
     var b = layer.bounds;
     var lw = px(b[2]) - px(b[0]);
@@ -327,7 +290,7 @@ var StarsAI = (function () {
     if (mode === 'contain' && Math.abs(sy - sx) < 0.001) s = sx;
     var pctW = s * 100;
     var pctH = (mode === 'contain' ? s : sy) * 100;
-    // 两个方向都要判：只看横向的话，宽已经对上、高没对上时纵向不会被拉伸
+//#294
     var changed = Math.abs(pctW - 100) > 0.5 || Math.abs(pctH - 100) > 0.5;
     if (changed) {
       layer.resize(pctW, pctH, AnchorPosition.MIDDLECENTER);
@@ -345,7 +308,7 @@ var StarsAI = (function () {
     }
   }
 
-  /* ---------- 对外接口 ---------- */
+  /* #13 */
   var api = {};
 
   api.info = function () {
@@ -361,6 +324,13 @@ var StarsAI = (function () {
         layers: doc.layers.length,
         hasSelection: hasSelection(doc),
         selection: selRect(doc),
+//#328
+        activeLayer: (function () {
+          try {
+            var L = doc.activeLayer;
+            return { name: String(L.name), isGroup: (L.typename === 'LayerSet') };
+          } catch (eAL) { return null; }
+        })(),
         profile: (function () {
           try { return doc.colorProfileName; } catch (e) { return ''; }
         })()
@@ -377,7 +347,7 @@ var StarsAI = (function () {
     } catch (e) { return err(e); }
   };
 
-  /* 导出当前文档的扁平 PNG（不动用户文件） */
+  /* #14 */
   api.exportDoc = function (path, optsJson) {
     var opts = parseOpts(optsJson);
     var doc = activeDoc();
@@ -389,7 +359,7 @@ var StarsAI = (function () {
       normalize(dup);
       var skippedAi = opts.skipAi ? hideAiLayers(dup) : 0;
       try { dup.flatten(); } catch (e) { try { dup.mergeVisibleLayers(); } catch (e2) {} }
-      // 大画布整张丢给 ComfyUI 会把显存/内存压爆（实测 30MP 直接 abort），先按长边缩一下
+//#363
       var maxEdge = parseInt(opts.maxEdge, 10) || 0;
       var w0 = px(dup.width), h0 = px(dup.height);
       if (maxEdge > 0 && (w0 > maxEdge || h0 > maxEdge)) {
@@ -402,8 +372,7 @@ var StarsAI = (function () {
       if (!f.parent.exists) f.parent.create();
       savePNG(dup, f);
       var res = { path: f.fsName, width: Math.round(px(dup.width)), height: Math.round(px(dup.height)), skippedLayers: skippedAi };
-      /* 0.7.19：顺手导一张同尺寸黑白蒙版（局部重绘时在 ComfyUI 里合成 alpha）。
-       * 必须先存图再烧蒙版 —— 烧蒙版会把 dup 的像素涂黑。 */
+      /* #15 */
       if (opts.maskPath && hasSelection(dup)) {
         try {
           if (opts.expand > 0) { try { dup.selection.expand(UnitValue(parseFloat(opts.expand), 'px')); } catch (eE) {} }
@@ -424,7 +393,7 @@ var StarsAI = (function () {
     }
   };
 
-  /* 选区 -> 黑白蒙版 PNG（白 = 要重绘的区域） */
+  /* #16 */
   api.exportMask = function (path, optsJson) {
     var doc = activeDoc();
     if (!doc) return err('没有打开的文档');
@@ -438,8 +407,8 @@ var StarsAI = (function () {
       var sel = dup.selection;
       if (opts.grow > 0) { try { sel.expand(UnitValue(opts.grow, 'px')); } catch (e) {} }
       if (opts.feather > 0) { try { sel.feather(UnitValue(opts.feather, 'px')); } catch (e) {} }
-      // 0.7.31：极性不变（白 = 要重绘，ComfyUI 的 VAEEncodeForInpaint 内部是 m = 1 - mask），
-      // 但改成不依赖通道的烧法：先把文档压成单层，再用 invert + fill 涂黑涂白。
+//#411
+//#412
       try { dup.flatten(); } catch (eF) { try { dup.mergeVisibleLayers(); } catch (eF2) {} }
       burnMaskOnDoc(dup);
       var f = new File(path);
@@ -456,11 +425,7 @@ var StarsAI = (function () {
     }
   };
 
-  /* 把文档的一块区域（矩形）单独导出成 PNG —— “裁剪式局部重绘”的前半段（0.7.11）。
-   * 为什么要它：整图缩到长边 2048 再送去生成，选区内能分到的有效像素只有
-   *   （选区宽 / 画布宽）× 2048 那么一点，模型再怎么画也是糊的。
-   * 把选区单独裁出来送出去，模型的那点分辨率预算就全花在这块上。
-   * 参数 {x,y,w,h, maxEdge}：文档像素坐标；返回实际用的 rect 与真正发出的尺寸。 */
+  /* #17 */
   api.exportRegion = function (path, optsJson) {
     var opts = parseOpts(optsJson);
     var doc = activeDoc();
@@ -481,11 +446,7 @@ var StarsAI = (function () {
       app.activeDocument = dup;
       normalize(dup);
       var skippedAi = opts.skipAi ? hideAiLayers(dup) : 0;
-      /* 0.7.19：不再事先反选掉 —— 选区要用来生成蒙版。
-       * 0.7.20：实测**选区活不过 flatten/crop/resize**（真机日志：裁完之后选区没了），
-       * 所以进来第一件事就是把它存进通道：通道会随 crop / resize 一起被裁、被缩，
-       * 天然和输出图对齐，最后再 loadSelection 恢复。
-       * selTrace 把每一步的存活情况带回去 —— 以后再出问题一眼能定位是哪一步吃掉的。 */
+      /* #18 */
       var selTrace = { dup: hasSelection(dup), flatten: null, crop: null, resize: null, restored: false };
       var chSel = null;
       try {
@@ -507,14 +468,14 @@ var StarsAI = (function () {
       selTrace.resize = hasSelection(dup);
       if (!hasSelection(dup) && chSel) {
         try {
-          // 标准写法是 selection.load(channel, SelectionType.REPLACE)；
-          // Channel.loadSelection() 在有的版本上不存在（0.7.31 之前这是「蒙版永远失败→矩形兜底」的嫌疑人之一）
+//#472
+//#473
           try { dup.selection.load(chSel, SelectionType.REPLACE); }
           catch (eL1) { chSel.loadSelection(); }
           selTrace.restored = hasSelection(dup);
         } catch (eRst) { selTrace.restoreError = msgOf(eRst); }
       }
-      if (chSel) { try { chSel.remove(); chSel = null; } catch (eChR) {} }   // saveMaskFromDup 自己会建通道
+      if (chSel) { try { chSel.remove(); chSel = null; } catch (eChR) {} }
 
       var f = new File(path);
       if (!f.parent.exists) f.parent.create();
@@ -522,8 +483,8 @@ var StarsAI = (function () {
       var out = {
         path: f.fsName,
         rect: { x: x, y: y, w: w, h: h },
-        // ⚠ 0.7.32：之前这里漏了 width/height，而面板的蒙版兜底是 `if (src && src.width)`，
-        // 于是裁剪模式下两层兜底全部被跳过、直接报「没有可用蒙版」（也顺带弄丢了 S.docSize）。
+//#487
+//#488
         width: Math.round(px(dup.width)),
         height: Math.round(px(dup.height)),
         crop: { w: Math.round(px(dup.width)), h: Math.round(px(dup.height)) },
@@ -531,7 +492,7 @@ var StarsAI = (function () {
         doc: { w: Math.round(dw), h: Math.round(dh) },
         selTrace: selTrace
       };
-      // 先存图再烧蒙版（烧蒙版会把 dup 的像素涂黑），两者尺寸必然一致
+//#496
       if (opts.maskPath) {
         try {
           if (!hasSelection(dup)) throw new Error('选区没活到生成蒙版这一步（诊断 ' + toJson(selTrace) + '）');
@@ -553,17 +514,7 @@ var StarsAI = (function () {
     }
   };
 
-  /* 0.7.32：按「真实选区形状」导出一张蒙版。
-   * 为什么又要改：真机日志证明 `doc.duplicate()` 出来的副本**根本没有选区**
-   *   （selTrace 全 false：{"dup":false,"flatten":false,"crop":false,"resize":false}），
-   * 所以任何「在副本里用 selection 烧蒙版」的写法都不可能成功 —— 0.7.19~0.7.31 一直卡在这。
-   * 现在的做法是「**先在你自己的文档上烧，再复制像素**」：
-   *   1) 按面板给的 feather/expand 调整当前选区
-   *   2) 新建一个临时图层，用 invert + fill 把选区烧成黑白像素（像素复制一定成功）
-   *   3) duplicate 一份 → crop → resize → 存 PNG
-   *   4) 无论成败都把临时图层删掉（你的原图一个像素没动，代价是选区会被用掉）
-   * 参数与 exportRegion 完全一致（同一组 x/y/w/h + maxEdge），两次算出的缩放比相同，
-   * 蒙版和图片仍然像素级对齐。 */
+  /* #19 */
   api.exportRegionMask = function (path, optsJson) {
     var opts = parseOpts(optsJson);
     var doc = activeDoc();
@@ -581,18 +532,18 @@ var StarsAI = (function () {
       if (y + h > dh) h = Math.round(dh - y);
       if (w < 8 || h < 8) return err('选区不在画布内');
 
-      // 1) 羽化 / 扩展：在文档坐标里做（和面板 inkFeatherExpand 的单位一致）
+//#536
       var sel = doc.selection;
       if (opts.expand > 0) { try { sel.expand(UnitValue(parseFloat(opts.expand), 'px')); } catch (eE) {} }
       if (opts.feather > 0) { try { sel.feather(UnitValue(parseFloat(opts.feather), 'px')); } catch (eFe) {} }
 
-      // 2) 临时图层上烧蒙版（原图被它整个盖住，删层即还原；这一步会把选区用掉）
+//#541
       layer = doc.artLayers.add();
       layer.name = 'StarsAI_mask_tmp';
       if (doc.activeLayer && doc.activeLayer.id !== layer.id) { try { doc.activeLayer = layer; } catch (eAL) {} }
       burnMaskOnDoc(doc);
 
-      // 3) 复制像素（不依赖选区复制）→ 裁 → 缩 → 存
+//#547
       dup = doc.duplicate('StarsAI_mask');
       app.activeDocument = dup;
       try { dup.flatten(); } catch (eF) { try { dup.mergeVisibleLayers(); } catch (eF2) {} }
@@ -618,20 +569,20 @@ var StarsAI = (function () {
       app.activeDocument = doc;
       dup.close(SaveOptions.DONOTSAVECHANGES);
       dup = null;
-      // 4) 收尾：删掉临时图层，你的原图回到原样（选区在烧蒙版时已经用掉了）
+//#573
       try { if (layer) { layer.remove(); layer = null; } } catch (eRm) {}
       try { doc.selection.deselect(); } catch (eDe) {}
       return ok(out);
     } catch (e) {
       try { if (dup) dup.close(SaveOptions.DONOTSAVECHANGES); } catch (e3) {}
       try { app.activeDocument = doc; } catch (e4) {}
-      // ⚠ 失败路径也必须删层，否则黑白的蒙版会留在用户文档最上面
+//#580
       try { if (layer) { layer.remove(); layer = null; } } catch (e5) {}
       return err(e);
     }
   };
 
-  /* 把图片放进 PS：target=layer 插入当前文档（可选按选区加蒙版），target=doc 新开文档 */
+  /* #20 */
   api.place = function (path, optsJson) {
     var opts = parseOpts(optsJson);
     var f = new File(path);
@@ -656,25 +607,16 @@ var StarsAI = (function () {
     var hadSel = hasSelection(target);
     try {
       src = app.open(f);
-      app.activeDocument = src;            // 复制图层要求源文档在最前面
-      // 千万别 flatten：带 alpha 的 PNG 被扁平化会合成到白底，透明背景就没了（Q 版小人白底的元凶）
+      app.activeDocument = src;
+//#612
       if (src.layers.length > 1) {
         try { src.mergeVisibleLayers(); } catch (eMerge) {}
       }
       try { if (src.layers[0].isBackgroundLayer) src.layers[0].isBackgroundLayer = false; } catch (e0) {}
-      /* 0.7.9：把「缩放」搬到源文档里做 —— 这是「命令"变换"当前不可用」的解法。
-       * 旧做法是在用户文档里对复制进来的图层 resize/translate：一旦 activeLayer 没切过去，
-       * 变换就落到用户原来的图层（通常是背景层）上 —— PS 弹「命令"变换"当前不可用」模态框、
-       * 脚本卡住十几秒、图层尺寸却没变，后面按选区裁切自然全部无效（=「整张图」）。
-       * 现在先在临时 PNG 文档上 resizeImage 到目标像素尺寸（和 exportDoc 里那条同款：
-       * 单图层、无选区、无锁定，最不容易出问题），复制进用户文档后天生就是画布大小、贴 (0,0)，
-       * 用户文档里一次 transform 都不需要。 */
+      /* #21 */
       var fitMode = opts.fit || 'stretch';
       var stretched = false;
-      /* 0.7.11 裁剪模式（opts.rect）：结果图只代表选区那一块。
-       * 做法：在临时文档里先缩到 rect 的像素尺寸 → 画布扩到整幅（TOPLEFT，图层留在 0,0）
-       * → 平移到 rect 位置 → 再 duplicate 进用户文档。所有变换都发生在临时文档里
-       * （单图层、无选区、无锁定），用户文档里一次 transform 都不做。 */
+      /* #22 */
       var rectUsed = null;
       var rectError = null;
       try {
@@ -686,7 +628,7 @@ var StarsAI = (function () {
         }
       } catch (eR0) { rectUsed = null; }
       if (rectUsed) {
-        // 越界保护：app.js 传的是当时那张文档的坐标，换了文档/改过画布后可能越界
+//#632
         try {
           var tw0 = px(target.width), th0 = px(target.height);
           if (rectUsed.x < 0) rectUsed.x = 0;
@@ -699,9 +641,7 @@ var StarsAI = (function () {
             return err('选区块已经不在画布里了（文档被改过尺寸？），这条结果请用「新文档」查看');
           }
         } catch (eRc) {}
-        /* 0.7.21：可选 inset —— 把生成图外扩的那一圈裁掉再贴。
-         * 为什么需要：裁剪模式送出去的是「选区 + 15% 外扩」，那一圈是模型重新画的背景。
-         * 没有 alpha 合成时如果整块贴回去，就会在选区外围多出一圈很粗的边（红底照片 = 红框）。 */
+        /* #23 */
         var insetUsed = null;
         try {
           if (opts.inset && parseFloat(opts.inset.w) > 8 && parseFloat(opts.inset.h) > 8) {
@@ -716,7 +656,7 @@ var StarsAI = (function () {
         try {
           src.resizeImage(UnitValue(rectUsed.w, 'px'), UnitValue(rectUsed.h, 'px'), null, ResampleMethod.BICUBIC);
           if (insetUsed) {
-            // 先把外扩环裁掉：画布缩到 inset 区域，图层随之落到 (0,0)
+//#660
             src.crop([UnitValue(insetUsed.x, 'px'), UnitValue(insetUsed.y, 'px'),
                       UnitValue(insetUsed.x + insetUsed.w, 'px'), UnitValue(insetUsed.y + insetUsed.h, 'px')]);
           }
@@ -725,7 +665,7 @@ var StarsAI = (function () {
           var ty0 = rectUsed.y + (insetUsed ? insetUsed.y : 0);
           if (tx0 || ty0) src.activeLayer.translate(UnitValue(tx0, 'px'), UnitValue(ty0, 'px'));
         } catch (eRect) {
-          // 失败就明确中止：继续走"整图缩放"会把一块小图居中糊到画面上，比报错更糟
+//#669
           var rectWhy = msgOf(eRect);
           try { src.close(SaveOptions.DONOTSAVECHANGES); } catch (eSC) {}
           try { app.activeDocument = target; } catch (eAT) {}
@@ -743,22 +683,22 @@ var StarsAI = (function () {
         } catch (eStretch) {}
       }
       var layer = src.activeLayer.duplicate(target);
-      // 记下这个图层的唯一 id：之后所有操作都只认它，绝不作用到用户的图层上
+//#687
       var layerId = null;
       try { layerId = layer.id; } catch (eId) {}
       try { src.close(SaveOptions.DONOTSAVECHANGES); } catch (e) {}
       src = null;
       app.activeDocument = target;
-      selectComposite(target);   // 顺手把「停在通道视图」的文档修回彩色
+      selectComposite(target);
 
-      // 重新按 id 解析一次（跨文档复制后对象引用偶尔会失效）；解析不到就报错，绝不用 activeLayer 顶替
+//#695
       if (layerId !== null) {
         var resolved = findLayerById(target, layerId);
         if (resolved) layer = resolved;
         else { try { return err('复制图层失败：目标文档里找不到刚新建的图层（id ' + layerId + '）'); } catch (eR) { return err('复制图层失败'); } }
       }
       try { layer.name = opts.layerName || 'Stars-AI'; } catch (eName) {}
-      // 安全闸：确认要动的图层是刚复制进来的那个，并且不是用户的背景层
+//#702
       var safeLayer = true;
       try {
         if (layerId !== null && layer.id !== layerId) safeLayer = false;
@@ -768,12 +708,10 @@ var StarsAI = (function () {
         return err('拒绝操作：目标图层不是新复制进来的图层（或它是背景层），已中止以免破坏原图');
       }
 
-      // 变换前的体检：这一步能挡住「命令"变换"当前不可用」的模态框
+//#712
       var prepIssues = prepareForTransform(target, layer);
 
-      /* 0.7.9：变换不再静默。
-       * 以前是 catch (eFit) {}，变换失败和成功长得一模一样（用户只看到「整张图」）。
-       * 现在三件事都回传给面板：要不要变换、变换抛了什么、变换后图层到底铺满画布没有。 */
+      /* #24 */
       var fitError = null;
       var fitApplied = false;
       var needFit = true;
@@ -784,15 +722,15 @@ var StarsAI = (function () {
         if (Math.abs(lwz - dwt) <= Math.max(1.5, dwt * 0.001) &&
             Math.abs(lhz - dht) <= Math.max(1.5, dht * 0.001)) needFit = false;
       } catch (eNeed) {}
-      if (rectUsed) needFit = false;   // 裁剪模式：尺寸和位置已经在临时文档里摆好了
+      if (rectUsed) needFit = false;
       if (needFit && prepIssues.length) {
         return err('无法变换图层（' + prepIssues.join('；') + '）：请在 Photoshop 里确认文档不在快速蒙版、图层未被锁定后重试');
       }
       try {
         if (rectUsed) {
-          // 裁剪模式：什么都不做（临时文档里已经缩好、摆好位置）
+//#732
         } else if (opts.sizeRatio) {
-          // 贴纸模式：按画布高度比例缩放，再按 offsetY 定位
+//#734
           var lb = layer.bounds;
           var lh2 = px(lb[3]) - px(lb[1]);
           var pct2 = (px(target.height) * parseFloat(opts.sizeRatio) / lh2) * 100;
@@ -805,13 +743,13 @@ var StarsAI = (function () {
         } else if (needFit) {
           fitToDoc(layer, target, fitMode);
         } else {
-          // 尺寸已经精确匹配：只需居中，而这种情况 dx/dy 通常是 0，压根不会调 transform
+//#747
           center(layer, target);
         }
       } catch (eFit) {
         fitError = '变换失败：' + msgOf(eFit);
       }
-      // 复核：图层真的落在该在的位置/尺寸上了吗？不对的话，后面按选区裁切一定对不齐
+//#753
       try {
         var lba = layer.bounds;
         var lwa = px(lba[2]) - px(lba[0]), lha = px(lba[3]) - px(lba[1]);
@@ -835,25 +773,16 @@ var StarsAI = (function () {
       var maskKind = 'none';
       var lostSelection = false;
       var viewRestored = true;
-      var clipError = null;      // 0.7.9：裁切在哪一步失败，原样回传给面板（不再静默）
-      var selTouched = '';       // 扩展/羽化是否失败
-      var selUsed = null;        // 实际参与裁切的选区（扩展/羽化之后）
-      /* ⚠ 0.7.21 起这条路**默认关闭**，必须显式传 allowClip=true 才会跑。
-       * 原因（真机血泪）：
-       *   1) PS 27.10 上「反选 + Dlt」本身不可用（自检 2026-10-20 23:43 实测）；
-       *   2) 万一它生效了、而活动图层是背景层，删掉的像素会被**背景色**填回来 ——
-       *      用户背景色是红的，于是「选区外一圈巨大的红色边框」。
-       * 现在局部重绘改在 ComfyUI 里合成 alpha，PS 侧只负责摆图层，一次删像素都不做。
-       * 这里保留代码只为兼容，任何调用方都不要再传 clipToSelection。 */
+      var clipError = null;
+      var selTouched = '';
+      var selUsed = null;
+      /* #25 ⚠ 0.7.21 起这条路**默认关闭**，必须显式传 allowClip=true 才会跑 */
       if (opts.clipToSelection && opts.allowClip) {
         if (!hadSel) {
-          // 导出/出图期间选区没了（换过文档、手动取消过选择）：没法做局部合成，明确告诉面板
+//#783
           lostSelection = true;
         } else {
-          /* 局部合成只用「像素裁切」，不再建图层蒙版、也完全不碰通道。
-           * 原因：建蒙版要走 ActionManager 的 Mk/Chnl 动作，配合临时通道时会把文档带进通道视图
-           * （画布变灰），且失败是静默的。裁切只用到 selection + Dlt 两个最常见的操作，
-           * 而且**做完可以自检**（比较图层 bounds 有没有真的缩小），失败能被发现。 */
+          /* #26 */
           selectComposite(target);
 
           if (opts.expand > 0) {
@@ -871,31 +800,28 @@ var StarsAI = (function () {
           } else {
             var beforeBounds = null;
             try { beforeBounds = layer.bounds; } catch (eB) {}
-            // 0.7.9：先确认新图层真的成了活动图层，再由它去删；每步失败都记下原因
+//#804
             var activated = makeActive(target, layer, layerId);
             if (!activated) {
               clipError = '无法把新图层设为活动图层（它可能在折叠的图层组里）';
             } else {
-              /* 0.7.10 硬保险：删除（Dlt）永远作用在「当前活动图层」上。
-               * 万一活动图层变成了用户的背景层，删掉的像素会被**背景色**填回来 ——
-               * 用户看到的就是「选区外一片红色」（他的背景色是红的，0.7.6 的红色块同源）。
-               * 宁可放弃这次裁切，也绝不在背景层上删像素。 */
+              /* #27 */
               var bgTarget = false;
               try { bgTarget = !!target.activeLayer.isBackgroundLayer; } catch (eBg) { bgTarget = true; }
               if (bgTarget) {
                 clipError = '删除目标变成了背景层，已中止（否则选区外会被背景色填成红色）';
               } else {
-                try { target.selection.invert(); }                    // 反选 = 选区外
+                try { target.selection.invert(); }
                 catch (eInv) { clipError = '反选失败：' + msgOf(eInv); }
                 if (!clipError) {
-                  try { executeAction(charIDToTypeID('Dlt '), new ActionDescriptor(), DialogModes.NO); }   // 删掉选区外
+                  try { executeAction(charIDToTypeID('Dlt '), new ActionDescriptor(), DialogModes.NO); }
                   catch (eDlt) { clipError = '删除选区外像素失败：' + msgOf(eDlt); }
                 }
               }
             }
             try { target.selection.deselect(); } catch (e) {}
 
-            // 自检：图层边界应该明显小于原来的画布级范围，否则说明没删掉（= 还是整张图）
+//#825
             if (beforeBounds) {
               try {
                 var afterBounds = layer.bounds;
@@ -916,7 +842,7 @@ var StarsAI = (function () {
             }
           }
 
-          // 收尾：务必把文档切回复合通道（万一此前被别的操作带到通道视图）
+//#846
           viewRestored = selectComposite(target);
         }
       }
@@ -925,7 +851,7 @@ var StarsAI = (function () {
         action: 'layer', name: layer.name,
         masked: masked, maskKind: maskKind, noSelection: lostSelection, viewRestored: viewRestored,
         layerId: layerId,
-        // 0.7.9 新增的诊断字段：面板据此告诉用户到底哪一步没成，而不是一句「整图」
+//#855
         stretch: stretched, needFit: needFit, fitApplied: fitApplied,
         fitError: fitError, clipError: clipError, selUsed: selUsed,
         rect: rectUsed, rectError: rectError,
@@ -942,7 +868,7 @@ var StarsAI = (function () {
     }
   };
 
-  /* 打开图片为文档 */
+  /* #28 */
   api.openDoc = function (path) {
     try {
       var f = new File(path);
@@ -952,7 +878,7 @@ var StarsAI = (function () {
     } catch (e) { return err(e); }
   };
 
-  /* 让用户挑一个文件（JSON 工作流） */
+  /* #29 */
   api.pickFile = function (title) {
     try {
       var f = File.openDialog(title || '选择文件', function (f2) { return true; }, false);
@@ -961,7 +887,7 @@ var StarsAI = (function () {
     } catch (e) { return err(e); }
   };
 
-  /* 读取文本文件（工作流 JSON 用，避开浏览器里的文件选择框） */
+  /* #30 */
   api.readText = function (path) {
     try {
       var f = new File(path);
@@ -974,7 +900,7 @@ var StarsAI = (function () {
     } catch (e) { return err(e); }
   };
 
-  /* 让用户挑一个目录（选 ComfyUI 安装位置） */
+  /* #31 */
   api.pickFolder = function (title) {
     try {
       var f = Folder.selectDialog(title || '选择 ComfyUI 目录');
@@ -983,7 +909,7 @@ var StarsAI = (function () {
     } catch (e) { return err(e); }
   };
 
-  /* 自检：把文档/图层/通道的真实状态吐出来（排"画布变灰/贴错位置/贴错图层"这类问题用） */
+  /* #32 */
   api.diag = function () {
     try {
       var doc = activeDoc();
@@ -1022,7 +948,7 @@ var StarsAI = (function () {
     } catch (e) { return err(e); }
   };
 
-  /* 文档状态快照（自检报告里用；字段与 diag 保持一致，但 diag 那份是给用户看的旧格式，不去动它） */
+  /* #33 */
   function docState(doc) {
     var o = { name: doc.name };
     try { o.w = Math.round(px(doc.width)); o.h = Math.round(px(doc.height)); } catch (e0) {}
@@ -1039,15 +965,7 @@ var StarsAI = (function () {
     return o;
   }
 
-  /* ---------- 安全探针（0.7.17）----------
-   * 为什么需要它：0.7.9~0.7.16 的每一步都只能“真机跑一次，失败才知道”，
-   * 而一次失败要等 30 秒生成、还可能改坏用户文档（“选区外一片红”就是这么来的）。
-   * 这个函数把整条链路在**文档副本**上跑一遍，用户的文档一个像素都不动：
-   *   - 全程 app.displayDialogs = DialogModes.NO：PS 不会弹模态框把脚本卡住（这是最关键的防护）
-   *   - 每一步独立 try/catch：成功带耗时，失败带 PS 的原话
-   *   - 副本用完 DONOTSAVECHANGES 关掉；原文档的 activeLayer 也会还原
-   * 它回答的是：「这台 PS 上 makeActive / crop / resizeCanvas / translate / Dlt 到底行不行」。
-   * 结果直接写进面板日志，不用再等一次完整生成。 */
+  /* #34 */
   api.selfTest = function (outPath) {
     var doc = activeDoc();
     if (!doc) return err('先打开一个文档再自检');
@@ -1089,8 +1007,7 @@ var StarsAI = (function () {
       });
 
       if (dupOk) {
-        /* A. makeActive 三路：把文档里前 6 个图层（含组内图层）逐个切成活动图层并验证 id。
-         * 全部失败 = 0.7.9 的三路在这台 PS 上都不成立，那就必须换思路（不能靠活动图层删像素）。 */
+        /* #35 */
         var cands = [];
         (function collect(layers, inGroup, depth) {
           for (var i = 0; i < layers.length && cands.length < 6; i++) {
@@ -1121,14 +1038,7 @@ var StarsAI = (function () {
           return Math.round(px(dup.width)) + '×' + Math.round(px(dup.height)) + '（k=' + k.toFixed(3) + '）';
         });
 
-        /* B. 造一个“可以随便弄坏”的图层：删像素永远作用在活动图层上，
-         * 所以先证明「探针图层 → 设为活动图层 → 删选区外 → 范围缩小」这条路通。
-         * ⚠ 0.7.17 这里的写法是 artLayers.add() + layer.fill()，但 PS 27 的 ArtLayer 上
-         * **没有 fill 方法**（实测报「probeLayer.fill 不是函数」）→ 建出来的是空图层 →
-         * 紧接着 Dlt 报「命令"删除"当前不可用」、translate 报「最初的定界矩形是空的」，
-         * 三步连环失败，看起来像 PS 不支持，其实是探针自己的 bug。
-         * 0.7.18 改成「复制文档里最底层的像素图层」：和真实写回（duplicate 一个满画布图层）
-         * 最接近，也不依赖任何不确定的 DOM 方法。 */
+        /* #36 */
         var probeLayer = null, probeId = null, probeReady = false;
         run('复制像素图层当探针', function () {
           var srcLayer = null;
@@ -1142,28 +1052,8 @@ var StarsAI = (function () {
           return probeLayer.name + ' · id ' + probeId + ' · 来源「' + srcLayer.name + '」';
         });
 
-        /* ⚠ 这步测的是 0.7.18 及以前的方案。0.7.19 起局部重绘改用「ComfyUI 内 alpha 合成」，
-         * PS 侧不再删像素 —— 所以这里 ✗ 也**不影响功能**了，只作为 FYI 记录。 */
-        run('反选 + Dlt（旧方案·0.7.19 起已弃用，仅记录）', function () {
-          if (!probeReady) throw new Error('跳过：探针图层没造出来');
-          if (!makeActive(dup, probeLayer, probeId)) throw new Error('无法把探针图层设为活动图层');
-          if (dup.activeLayer.isBackgroundLayer) throw new Error('活动图层是背景层，删像素会被背景色填满（这就是“选区外变红”）');
-          var b0 = numericBounds(probeLayer);
-          var s0 = boundsSize(b0);
-          if (!s0 || s0.w <= 0 || s0.h <= 0) throw new Error('探针图层是空的（bounds 为零），没有像素可删');
-          var w = Math.min(80, Math.max(16, Math.round(px(dup.width) / 3)));
-          var h = Math.min(60, Math.max(16, Math.round(px(dup.height) / 3)));
-          var x = Math.round((px(dup.width) - w) / 2), y = Math.round((px(dup.height) - h) / 2);
-          dup.selection.select([[UnitValue(x, 'px'), UnitValue(y, 'px')], [UnitValue(x + w, 'px'), UnitValue(y + h, 'px')]], SelectionType.REPLACE, 0, true);
-          dup.selection.invert();
-          executeAction(charIDToTypeID('Dlt '), new ActionDescriptor(), DialogModes.NO);
-          try { dup.selection.deselect(); } catch (eDS) {}
-          var b1 = numericBounds(probeLayer);
-          var s1 = boundsSize(b1);
-          if (!s1) throw new Error('删完拿不到图层 bounds');
-          if (!(s1.w < s0.w || s1.h < s0.h)) throw new Error('删完图层范围没缩小（Dlt 没真正生效）：' + s0.w + '×' + s0.h + ' → ' + s1.w + '×' + s1.h);
-          return s0.w + '×' + s0.h + ' → ' + s1.w + '×' + s1.h;
-        });
+        /* #37 已删除：原「反选 + Dlt」探针自 0.7.19 起就是弃用状态，
+         * 结论记在 NEXT-SESSION 坑 #3（PS 27 的 Dlt 不可用），代码留在自检里只占体积。 */
 
         run('crop（按矩形裁剪）', function () {
           var w = Math.min(128, Math.round(px(dup.width)));
@@ -1172,8 +1062,7 @@ var StarsAI = (function () {
           return Math.round(px(dup.width)) + '×' + Math.round(px(dup.height));
         });
 
-        /* resizeCanvas 和 translate 拆成两步：0.7.17 合成一步时，translate 失败会把
-         * 「resizeCanvas 到底成没成」一起吞掉（实测它其实成功了，日志里却只看到一句失败）。 */
+        /* #38 */
         run('resizeCanvas TOPLEFT', function () {
           var w = Math.round(px(dup.width)), h = Math.round(px(dup.height));
           dup.resizeCanvas(UnitValue(w + 64, 'px'), UnitValue(h + 48, 'px'), AnchorPosition.TOPLEFT);
@@ -1191,6 +1080,75 @@ var StarsAI = (function () {
           if (!b1) throw new Error('变换后拿不到 bounds');
           if (b1[0] - b0[0] !== 10 || b1[1] - b0[1] !== 8) throw new Error('translate 没生效：' + b0.join(',') + ' → ' + b1.join(','));
           return b0.join(',') + ' → ' + b1.join(',');
+        });
+
+        /* #39 */
+
+
+
+
+        run('suspendHistory（精修要合并成一步撤销）', function () {
+          if (!probeReady) throw new Error('跳过：探针图层没造出来');
+          var flag = { done: false };
+          $.global.__starsaiProbeHist = function () { flag.done = true; };
+          try {
+            dup.suspendHistory('StarsAI probe', '__starsaiProbeHist()');
+          } finally {
+            try { delete $.global.__starsaiProbeHist; } catch (eDel) {}
+          }
+          if (!flag.done) throw new Error('suspendHistory 里的脚本没被执行');
+          return '一步历史记录可用';
+        });
+
+        /* #40 */
+        run('selectEllipse + feather（暗角选区）', function () {
+          var w = Math.max(32, Math.round(px(dup.width) * 0.6));
+          var h = Math.max(32, Math.round(px(dup.height) * 0.6));
+          var x = Math.round((px(dup.width) - w) / 2), y = Math.round((px(dup.height) - h) / 2);
+          dup.selection.selectEllipse([
+            [UnitValue(x, 'px'), UnitValue(y, 'px')],
+            [UnitValue(x + w, 'px'), UnitValue(y + h, 'px')]
+          ], SelectionType.REPLACE, 6, true);
+          if (!hasSelection(dup)) throw new Error('画完椭圆没有选区');
+          dup.selection.deselect();
+          return w + '×' + h + ' · feather 6';
+        });
+
+        run('selection.fill（暗角填黑 / 灰层铺灰）', function () {
+          if (!probeReady) throw new Error('跳过：探针图层没造出来');
+          if (!makeActive(dup, probeLayer, probeId)) throw new Error('无法把探针图层设为活动图层');
+          var w = Math.min(40, Math.round(px(dup.width))), h = Math.min(40, Math.round(px(dup.height)));
+          dup.selection.select([
+            [UnitValue(0, 'px'), UnitValue(0, 'px')],
+            [UnitValue(w, 'px'), UnitValue(h, 'px')]
+          ], SelectionType.REPLACE, 0, true);
+          var c = new SolidColor();
+          c.rgb.hexValue = '808080';
+          dup.selection.fill(c, ColorBlendMode.NORMAL, 100, false);
+          dup.selection.deselect();
+          return '填了 ' + w + '×' + h + ' 的 50% 灰';
+        });
+
+        run('adjustBrightnessContrast / adjustHueSaturation（眼睛 / 牙齿）', function () {
+          if (!probeReady) throw new Error('跳过：探针图层没造出来');
+          if (!makeActive(dup, probeLayer, probeId)) throw new Error('无法把探针图层设为活动图层');
+          probeLayer.adjustBrightnessContrast(8, 4);
+          probeLayer.adjustHueSaturation(-20, 0, 0);
+          return '两组 adjust* 都跑通';
+        });
+
+
+        /* #41 0.7.49：精修的端到端干跑 —— 在**副本**上真的调一次 api.polish。 */
+        run('api.polish 端到端（在副本上真跑一次磨皮）', function () {
+          if (!probeReady) throw new Error('跳过：探针图层没造出来');
+          if (!makeActive(dup, probeLayer, probeId)) throw new Error('无法把探针图层设为活动图层');
+          var raw = api.polish('smooth', { strength: 'normal' });
+          var j = null;
+          try { j = JSON.parse(raw); } catch (e1) {}
+          if (!j) throw new Error('polish 返回的不是 JSON：' + String(raw).slice(0, 120));
+          if (!j.ok) throw new Error('polish 报错：' + j.error);
+          return j.layer + ' · 半径 ' + j.radius + ' / 阈值 ' + j.threshold +
+                 ' · 不透明度 ' + j.opacity + '% · 历史 ' + (j.historyStep ? '一步' : '多步（回退路径）');
         });
 
         run('flatten + savePNG（真的写出文件）', function () {
@@ -1226,8 +1184,347 @@ var StarsAI = (function () {
     return ok(report);
   };
 
+  /* #42 */
+  var POLISH = {
+    /* #43 */
+    smooth:    { label: '磨皮', base: 4,  threshold: 15, opacity: 70,  blend: null },
+    despeckle: { label: '去斑', base: 2,  threshold: 10, opacity: 100, blend: null, dust: true },
+    sharpen:   { label: '锐化', base: 0,  threshold: 3,  opacity: 100, blend: null, usm: true },
+    skintone:  { label: '肤色', base: 12, threshold: 30, opacity: 45,  blend: 'color' },
+    /* #44 */
+    eyes:      { label: '眼睛', opacity: 100, needSelection: '眼睛', bright: 10, contrast: 6, usm: true },
+    teeth:     { label: '牙齿', opacity: 100, needSelection: '牙齿', sat: -28, bright: 6 },
+    /* #45 */
+    vignette:  { label: '暗角', opacity: 60, blend: 'multiply', newLayer: true },
+    dnb:       { label: '减淡加深', opacity: 100, blend: 'softlight', newLayer: true, gray: true }
+  };
+
+  /* #46 */
+  var POLISH_STRENGTH = { light: 0.62, normal: 1, heavy: 1.7 };
+
+  function strengthOf(opts) {
+    var k = POLISH_STRENGTH[String(opts.strength || 'normal')];
+    return k == null ? 1 : k;
+  }
+
+  function polishRadius(doc, base, k) {
+    var longEdge = Math.max(px(doc.width), px(doc.height));
+    var scale = Math.max(1, longEdge / 2048);
+    return Math.min(32, Math.max(2, Math.round(base * scale * (k == null ? 1 : k))));
+  }
+
+  function polishOpacity(base, k) {
+    var v = Math.round((base == null ? 100 : base) * (k == null ? 1 : k));
+    return Math.max(5, Math.min(100, v));
+  }
+
+  /* #47 */
+  /* #47 PS 27 可能整批没有 ArtLayer 的 apply* 滤镜（0.7.55 真机实测）。
+   * 策略：宿主给什么就用什么；全挑不到再退 ActionManager（菜单能点的滤镜它都能调）。 */
+  function callFilter(layer, names, a1, a2) {
+    for (var i = 0; i < names.length; i++) {
+      try {
+        if (typeof layer[names[i]] !== 'function') continue;
+        if (a2 === undefined || a2 === null) layer[names[i]](a1);
+        else layer[names[i]](a1, a2);
+        return names[i];
+      } catch (e) {}
+    }
+    return '';
+  }
+  function amFilter(cmdId, params) {
+    try {
+      var r = new ActionDescriptor();
+      for (var i = 0; i < params.length; i++) {
+        var p = params[i];
+        if (p[0] === 'px') r.putUnitDouble(charIDToTypeID(p[1]), charIDToTypeID("#Pxl"), p[2]);
+        else r.putInteger(charIDToTypeID(p[1]), p[2]);
+      }
+      var d = new ActionDescriptor();
+      d.putObject(charIDToTypeID("With"), charIDToTypeID(cmdId), r);
+      executeAction(charIDToTypeID(cmdId), d, DialogModes.NO);
+      return true;
+    } catch (e) { return false; }
+  }
+  /* #48 真机探测：PS 27.10 没有 applySurfaceBlur / adjustHueSaturation；ActionManager 可用。
+   * 磨皮优先 applySmartBlur（保边），高斯只作最后手段。 */
+  function amHueSat(saturation, lightness) {
+    try {
+      var adj = new ActionDescriptor();
+      adj.putInteger(charIDToTypeID("H   "), 0);
+      adj.putInteger(charIDToTypeID("Strt"), saturation);
+      adj.putInteger(charIDToTypeID("Lght"), lightness);
+      var d = new ActionDescriptor();
+      d.putObject(charIDToTypeID("Adjs"), charIDToTypeID("HStr"), adj);
+      executeAction(charIDToTypeID("HStr"), d, DialogModes.NO);
+      return true;
+    } catch (e) { return false; }
+  }
+
+  /* #49 真机：`BlendMode.COLOR` 在 PS 27.10 里报「无效枚举值」。所以混合模式不能硬赋枚举：
+   * 先按候选名试 BlendMode.xxx，再试字符串赋值，最后走 ActionManager（BlnM 那套标准 ID）。
+   * 全都设不上也**不抛错** —— 混合模式没生效只是效果降级，不该让整次精修白跑。 */
+  function setBlendSafe(layer, mode) {
+    var names = mode === 'color' ? ['COLOR', 'COLORBLEND']
+              : mode === 'multiply' ? ['MULTIPLY']
+              : mode === 'softlight' ? ['SOFTLIGHT', 'SOFT_LIGHT'] : [];
+    for (var i = 0; i < names.length; i++) {
+      try {
+        var e = BlendMode[names[i]];
+        if (e != null) { layer.blendMode = e; return names[i]; }
+      } catch (e1) {}
+    }
+    try { layer.blendMode = mode; return 'str:' + mode; } catch (e2) {}
+    var amId = mode === 'color' ? 'Clr ' : mode === 'multiply' ? 'Mltp' : mode === 'softlight' ? 'SftL' : '';
+    if (amId) {
+      try {
+        var ref = new ActionReference();
+        ref.putEnumerated(charIDToTypeID('Lyr '), charIDToTypeID('Ordn'), charIDToTypeID('Trgt'));
+        var bd = new ActionDescriptor();
+        bd.putEnumerated(charIDToTypeID('Md  '), charIDToTypeID('BlnM'), charIDToTypeID(amId));
+        var d = new ActionDescriptor();
+        d.putReference(charIDToTypeID('null'), ref);
+        d.putObject(charIDToTypeID('T   '), charIDToTypeID('Lyr '), bd);
+        executeAction(charIDToTypeID('setd'), d, DialogModes.NO);
+        return 'AM:' + amId;
+      } catch (e3) {}
+    }
+    return '';
+  }
+
+  function applyBlur(layer, radius, threshold) {
+    var v = callFilter(layer, ['applySmartBlur', 'applySurfaceBlur'], radius, threshold);
+    if (v) return v;
+    if (amFilter('SbBl', [['px', 'Rds ', radius], ['int', 'Thsh', threshold]])) return 'AM:SbBl';
+    var v2 = callFilter(layer, ['applyGaussianBlur'], radius);
+    if (v2) return v2;
+    if (amFilter('GsnB', [['px', 'Rds ', radius]])) return 'AM:GsnB';
+    return '';
+  }
+  function applyDust(layer, radius, threshold) {
+    var v = callFilter(layer, ['applyDustAndScratches', 'applyMedianNoise'], radius, threshold);
+    if (v) return v;
+    if (amFilter('DstS', [['px', 'Rds ', radius], ['int', 'Thsh', threshold]])) return 'AM:DstS';
+    return '';
+  }
+  function applySharpen(layer, amount, threshold) {
+    var v = '';
+    try {
+      if (typeof layer.applyUnSharpMask === 'function') {
+        layer.applyUnSharpMask(amount, 1.2, threshold);
+        v = 'applyUnSharpMask';
+      }
+    } catch (e0) {}
+    if (v) return v;
+    v = callFilter(layer, ['applySharpenMore', 'applySharpen', 'applySharpenEdges'], null);
+    if (v) return v;
+    if (amFilter('UnsM', [['int', 'Amnt', amount], ['px', 'Rds ', 1.2], ['int', 'Thsh', threshold]])) return 'AM:UnsM';
+    return '';
+  }
+
+  function polishImpl(kind, optsJson) {
+    var opts = parseOpts(optsJson);
+    var doc = activeDoc();
+    if (!doc) return err('没有打开的文档');
+    var plan = POLISH[kind];
+    if (!plan) return err('未知的精修类型：' + kind);
+    var k = strengthOf(opts);
+
+    var src = null;
+    try { src = doc.activeLayer; } catch (eL) { src = null; }
+    if (!src) return err('没有活动图层');
+    if (src.typename === 'LayerSet') {
+      return err('活动图层是图层组「' + src.name + '」—— 先选中一个像素图层再点精修');
+    }
+
+    var hadSel = false, selBox = null;
+    try {
+      hadSel = hasSelection(doc);
+      if (hadSel) selBox = selRect(doc);
+    } catch (eS) {}
+    if (hadSel && !selBox) { try { selBox = selRect(doc); } catch (eS2) {} }
+
+//#1301
+    if (plan.needSelection && !hadSel) {
+      return err('「' + plan.label + '」需要先框选：在 PS 里把' + plan.needSelection +
+                 '选住再点（整层处理会把整张脸一起改掉）');
+    }
+
+    var out = { ok: false };
+    var newLayer = null;
+    var opacity = polishOpacity(plan.opacity, k);
+
+    function body() {
+      try {
+        if (plan.newLayer) {
+          newLayer = doc.artLayers.add();
+        } else {
+          newLayer = src.duplicate();
+        }
+        try { doc.activeLayer = newLayer; } catch (eA) {}
+        var r = 0, t = plan.threshold || 0;
+
+        if (plan.vignette) {
+          /* #48 */
+          try { if (hasSelection(doc)) doc.selection.deselect(); } catch (eV0) {}
+          var nw = px(doc.width), nh = px(doc.height);
+          var inset = 0.42;
+          var box = [
+            [UnitValue(Math.round(nw * (0.5 - inset)), 'px'), UnitValue(Math.round(nh * (0.5 - inset)), 'px')],
+            [UnitValue(Math.round(nw * (0.5 + inset)), 'px'), UnitValue(Math.round(nh * (0.5 + inset)), 'px')]
+          ];
+          var featherPx = Math.max(8, Math.round(Math.max(nw, nh) * 0.06 * k));
+          doc.selection.selectEllipse(box, SelectionType.REPLACE, featherPx, true);
+          doc.selection.invert();
+          var black = new SolidColor();
+          black.rgb.hexValue = '000000';
+          doc.selection.fill(black, ColorBlendMode.NORMAL, 100, false);
+          try { doc.selection.deselect(); } catch (eV1) {}
+          out.feather = featherPx;
+        } else if (plan.gray) {
+          /* #49 */
+          try { if (hasSelection(doc)) doc.selection.deselect(); } catch (eV2) {}
+          doc.selection.selectAll();
+          var gray = new SolidColor();
+          gray.rgb.hexValue = '808080';
+          doc.selection.fill(gray, ColorBlendMode.NORMAL, 100, false);
+          try { doc.selection.deselect(); } catch (eV3) {}
+        } else if (plan.usm) {
+//#1347
+          var amt = Math.max(10, Math.round(80 * k));
+          var viaU = applySharpen(newLayer, amt, t);
+          if (!viaU) throw new Error('这个版本的 PS 没有可用的锐化滤镜（3 条路都试过了）');
+          out.amount = amt;
+          out.via = viaU;
+          if (plan.bright !== undefined) {
+            newLayer.adjustBrightnessContrast(Math.round(plan.bright * k), Math.round((plan.contrast || 0) * k));
+            out.bright = Math.round(plan.bright * k);
+          }
+        } else if (plan.sat !== undefined) {
+//#1356
+          var satVal = Math.round(plan.sat * k);
+          var satOk = false;
+          try {
+            if (typeof newLayer.adjustHueSaturation === 'function') {
+              newLayer.adjustHueSaturation(satVal, 0, 0);
+              satOk = true;
+              out.via = 'adjustHueSaturation';
+            }
+          } catch (e0) {}
+          if (!satOk && amHueSat(satVal, 0)) {
+            satOk = true;
+            out.via = 'AM:HStr';
+          }
+          if (!satOk) throw new Error('这个版本的 PS 没法降饱和（2 条路都试过了）');
+          out.sat = satVal;
+          if (plan.bright !== undefined && typeof newLayer.adjustBrightnessContrast === 'function') {
+            newLayer.adjustBrightnessContrast(Math.round(plan.bright * k), 0);
+            out.bright = Math.round(plan.bright * k);
+          }
+        } else if (plan.dust) {
+          r = polishRadius(doc, plan.base, k);
+          var viaD = applyDust(newLayer, r, t);
+          if (!viaD) throw new Error('这个版本的 PS 没有可用的去斑滤镜（3 条路都试过了）');
+          out.via = viaD;
+        } else {
+          r = polishRadius(doc, plan.base, k);
+          var viaB = applyBlur(newLayer, r, t);
+          if (!viaB) throw new Error('这个版本的 PS 没有可用的模糊滤镜（4 条路都试过了）');
+          out.via = viaB;
+        }
+
+        out.radius = plan.base ? r : null;
+        out.threshold = plan.base ? t : null;
+
+        if (plan.blend) {
+          var bm = setBlendSafe(newLayer, plan.blend);
+          if (bm) {
+            out.blend = plan.blend;
+            out.blendVia = bm;
+          } else {
+            // 设不上不抛错：效果降级（普通叠加），但这次精修仍然算成功
+            out.blendWarn = '混合模式没设上（BlendMode.' + String(plan.blend).toUpperCase() + ' 和 ActionManager 都试过了）';
+          }
+        }
+        newLayer.opacity = opacity;
+        out.opacity = opacity;
+        try { newLayer.name = 'Stars-AI · ' + plan.label; } catch (eN) {}
+        out.layer = String(newLayer.name);
+        out.ok = true;
+      } catch (e) {
+        out.error = msgOf(e);
+//#1391
+        try { if (newLayer) newLayer.remove(); } catch (eR) {}
+        newLayer = null;
+      }
+    }
+
+    /* #50 */
+    var historyStep = false;
+    try {
+      $.global.__starsaiPolishBody = body;
+      doc.suspendHistory('Stars-AI 精修 · ' + plan.label, '__starsaiPolishBody()');
+      historyStep = true;
+    } catch (eH) {
+//#1404
+      if (!out.ok && !out.error) {
+        try { body(); } catch (e3) { out.error = msgOf(e3); }
+        if (!out.ok && !out.error) out.error = msgOf(eH);
+      }
+    } finally {
+      try { delete $.global.__starsaiPolishBody; } catch (eD) {}
+    }
+
+    if (!out.ok) return err(out.error || '精修失败（原因未知）');
+
+    return ok({
+      action: 'polish',
+      kind: kind,
+      label: plan.label,
+      layer: out.layer,
+      strength: String(opts.strength || 'normal'),
+      radius: out.radius,
+      threshold: out.threshold,
+      amount: out.amount,
+      via: out.via,
+      bright: out.bright,
+      sat: out.sat,
+      feather: out.feather,
+      opacity: out.opacity,
+      blend: out.blend || 'normal',
+      blendVia: out.blendVia,
+      blendWarn: out.blendWarn,
+      hadSelection: hadSel,
+      selection: selBox,
+      historyStep: historyStep,
+      doc: { w: Math.round(px(doc.width)), h: Math.round(px(doc.height)) }
+    });
+  };
+
+  /* #51 */
+  api.polish = function (kind, optsJson) {
+    try {
+      return polishImpl(kind, optsJson);
+    } catch (eTop) {
+      return err('精修内部错误（已兜住）：' + msgOf(eTop));
+    }
+  };
+
   api.ping = function () {
-    return ok({ ps: String(app.version), docs: app.documents.length, jsx: JSX_BUILD });
+    return ok({
+      ps: String(app.version),
+      docs: app.documents.length,
+      jsx: JSX_BUILD,
+      /* #52 */
+      caps: {
+        polish: (typeof api.polish === 'function'),
+        polishKinds: (function () {
+          var n = 0;
+          for (var kk in POLISH) { if (POLISH.hasOwnProperty(kk)) n++; }
+          return n;
+        })()
+      }
+    });
   };
 
   return api;

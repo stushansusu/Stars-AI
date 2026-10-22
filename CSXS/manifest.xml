@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<ExtensionManifest Version="7.0" ExtensionBundleId="com.starsai.panel" ExtensionBundleVersion="0.7.8"
+<ExtensionManifest Version="7.0" ExtensionBundleId="com.starsai.panel" ExtensionBundleVersion="0.7.58"
   ExtensionBundleName="Stars-AI" ExtensionBundleDescription="Stars-AI · 连接本地 ComfyUI 的 Photoshop AI 修图助手">
   <ExtensionList>
-    <Extension Id="com.starsai.panel" Version="0.7.8" />
+    <Extension Id="com.starsai.panel" Version="0.7.58" />
   </ExtensionList>
   <ExecutionEnvironment>
     <HostList>
@@ -22,6 +22,11 @@
       <DispatchInfo>
         <Resources>
           <MainPath>./index.html</MainPath>
+          <!-- 0.7.58：直连 host.jsx。
+               为什么不挂 boot.jsx：CEP 的 evalScript 环境里 $.evalFile / eval 都可能被阻断
+               （三条装载路径全失败的实测结论），所以唯一稳的路是让 ScriptPath 直接加载。
+               代价是 host.jsx 必须 < 64K 字符 —— 历史注释已搬到 jsx/NOTES.md，
+               现在 59,611 字符；test-workshops.js 有体积守卫断言。 -->
           <ScriptPath>./jsx/host.jsx</ScriptPath>
           <CEFCommandLine>
             <Parameter>--enable-nodejs</Parameter>

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <title>Stars-AI</title>
-<link rel="stylesheet" href="css/style.css?v=0.7.40" />
+<link rel="stylesheet" href="css/style.css?v=0.7.58" />
 </head>
 <body>
 <div class="app">
@@ -21,6 +21,16 @@
     <button class="icon-btn" id="btnSettings" title="设置">⚙</button>
   </header>
 
+  <!-- 0.7.45：版本漂移横幅。面板内存 / PS 脚本 / 磁盘文件 三方版本不一致时挂在这里。
+       存在的唯一目的：把「改了没效果、日志首行却还是旧 build」从「翻日志猜」变成「一眼看见」。
+       逻辑在 app.js 的 checkBuildDrift()；err 级不允许手动关闭（必须修好）。 -->
+  <div class="verbar hidden" id="verBar">
+    <span class="verbar-ic" id="verBarIc">⚠</span>
+    <div class="verbar-tx" id="verBarTx"></div>
+    <button class="btn sm ghost hidden" id="verBarAct">重载脚本</button>
+    <button class="verbar-x" id="verBarClose" title="本次会话不再提示（重开面板会重新检查）">×</button>
+  </div>
+
   <div class="conn" id="connBar">
     <input id="serverInput" class="in" spellcheck="false" value="http://127.0.0.1:8188" />
     <button class="btn sm" id="btnConnect">连接</button>
@@ -29,7 +39,6 @@
 
   <div class="viewbar" id="viewbar">
     <button class="vtab active" data-view="anime">✦ 二次元工坊</button>
-    <button class="vtab locked" data-view="nsfw" title="🔞 18+ 内容：点击查看并同意免责条款后解锁">🔒 NSFW</button>
   </div>
 
   <div class="modebar" id="modebar">
@@ -97,14 +106,13 @@
         <div class="ws-head" id="nsfwHead">
           <div class="ws-title">
             <span class="lbl">🔞 NSFW 工坊</span>
-            <span class="ws-cnt" id="nsfwCount">30</span>
+            <span class="ws-cnt" id="nsfwCount">31</span>
           </div>
           <button class="icon-btn" id="btnNsfwLock" title="撤回同意，重新锁上" tabindex="-1"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.8" y="10.4" width="14.4" height="9.4" rx="2.2"/><path d="M8.2 10.4V7.9a3.8 3.8 0 0 1 7.6 0v2.5"/></svg></button>
           <div class="ws-sub" id="nsfwSub">选一个功能：模式、提示词、参数会自动配好（仅限成年角色）</div>
         </div>
         <div class="ws-body">
           <div class="nsfw-warn">
-            🔞 <b>仅限 18 岁以上成年人</b>。内容由本机模型生成、不上传云端；禁止生成涉及未成年人的内容；请遵守所在地法律法规，一切后果自行承担。
           </div>
           <div class="ws-tools">
             <div class="search">
@@ -133,8 +141,8 @@
       <div class="row">
         <span class="lbl">模型</span>
         <select id="archSelect" class="in">
-          <option value="qwen">Qwen-Image</option>
-          <option value="sd">SD / SDXL</option>
+          <option value="qwen">架构 A（默认）</option>
+          <option value="sd">架构 B</option>
         </select>
         <button class="icon-btn" id="btnRefreshModels" title="重新读取 ComfyUI 模型列表">↻</button>
       </div>
@@ -214,6 +222,53 @@
       <div class="thumbs" id="thumbs"></div>
     </section>
 
+    <!-- 0.7.47：DR 精修独立区块（原来那条挤在结果区按钮行里，现在自成一块）。
+         这一块和「生成」是两条完全独立的线：只作用于 当前图层 / 当前选区，
+         不走 ComfyUI、不占显存、不排队，点完即出，可以反复叠。
+         纪律：每次都在复制图层（或新建空层）上做，原图层一像素不动；有选区就只处理选区。 -->
+    <section class="card dr" id="drCard">
+      <div class="row between">
+        <span class="lbl">精修 · DR</span>
+        <span class="tiny" id="drMeta">作用于当前图层</span>
+      </div>
+      <div class="dr-note">PS 原生滤镜，不进 ComfyUI。在 PS 里框选就只处理选区，不框选则作用于整个图层。</div>
+
+      <div class="dr-row">
+        <span class="dr-cap">强度</span>
+        <div class="segs dr-segs" id="drStrength">
+          <button class="seg" data-strength="light" title="轻：半径和不透明度都收一半">轻</button>
+          <button class="seg active" data-strength="normal" title="中：默认档">中</button>
+          <button class="seg" data-strength="heavy" title="重：半径和不透明度都放大（大图建议用它）">重</button>
+        </div>
+      </div>
+
+      <div class="dr-group">
+        <span class="dr-cap">基础</span>
+        <div class="dr-btns">
+          <button class="btn sm ghost" id="btnPolishSmooth" title="表面模糊 + 不透明度：磨皮主力（有选区就只磨选区）">磨皮</button>
+          <button class="btn sm ghost" id="btnPolishDespeckle" title="尘埃与划痕：清皮肤色斑 / 噪点 / 细小瑕疵">去斑</button>
+          <button class="btn sm ghost" id="btnPolishSharpen" title="USM 锐化：找回细节与质感（AI 出图容易偏软）">锐化</button>
+          <button class="btn sm ghost" id="btnPolishSkintone" title="表面模糊 + 颜色混合模式：只统一肤色和红斑，不糊细节">肤色</button>
+        </div>
+      </div>
+
+      <div class="dr-group">
+        <span class="dr-cap">细节</span>
+        <div class="dr-btns">
+          <button class="btn sm ghost" id="btnPolishEyes" title="需要先框选眼睛：提亮 + 轻微锐化（不框选会改到整张脸，所以不框选会直接报错）">眼睛</button>
+          <button class="btn sm ghost" id="btnPolishTeeth" title="需要先框选牙齿：降黄 + 轻微提亮（不框选会改到整张脸，所以不框选会直接报错）">牙齿</button>
+        </div>
+      </div>
+
+      <div class="dr-group">
+        <span class="dr-cap">光影</span>
+        <div class="dr-btns">
+          <button class="btn sm ghost" id="btnPolishVignette" title="四角压暗：椭圆羽化 + 正片叠底，不改变中间区域">暗角</button>
+          <button class="btn sm ghost" id="btnPolishDnb" title="铺一层 50% 中性灰 + 柔光：之后你自己用减淡/加深画笔往上涂（面板替不了你涂）">减淡加深</button>
+        </div>
+      </div>
+    </section>
+
     <footer class="logwrap" id="logWrap">
       <div class="loghead" id="logToggle">
         <span>日志</span>
@@ -290,101 +345,8 @@
         <div class="tiny" id="cleanTip">只删 Stars-AI 自己产生的文件（<code>src_*.png</code> / <code>out_*.png</code> / <code>starsai_*.png</code>）；临时目录里的 <code>extra_model_paths.yaml</code> 会保留。点两次确认。</div>
       </div>
 
-      <div class="dsec">帮助</div>
-      <details class="help" id="helpStart">
-        <summary>📖 使用说明（30 秒上手）</summary>
-        <div class="help-body">
-          <ol>
-            <li>先开 ComfyUI（默认 <code>127.0.0.1:8188</code>），面板顶部点「连接」。状态灯变绿、模型槽自动填好就说明通了（连不上可点「▶ 启动」）。</li>
-            <li>在 PS 里打开一张底图（大部分功能都要底图；纯「文生图」可以不打开）。</li>
-            <li>选一个工坊：<b>✦ 二次元工坊</b> / <b>🔞 NSFW</b>（需先同意 18+ 条款）；每个工坊里再按顶部分类（画风 / Q 版 / 背景场景 / 服装 / 画质 …）挑选。</li>
-            <li>点一张功能卡 → 模式、提示词、参数自动填好，都可以再改。提示词用祈使句最稳，例如「把背景换成雨夜街道，保留人物姿势」。</li>
-            <li>点底部「生成」。出图后自动插成新图层，原图不动；也可以在「结果」里点「新文档」。</li>
-            <li>不满意：点 🎲 换种子 / 参考分辨率升一档 / 把要求写得更具体。想一键出图就勾卡片上的「选完直接生成」。</li>
-          </ol>
-          <h4>三个小技巧</h4>
-          <ul>
-            <li><b>指令式写法</b>比形容词堆叠准：「把 A 换成 B，保留脸和姿势」。</li>
-            <li><b>局部重绘</b>先用选框圈住要改的地方：Qwen 看不到选区，面板会把<b>选区位置和占比自动补进提示词</b>，合成时再用图层蒙版隔离（边缘按画布大小自动羽化）。</li>
-            <li>「🧷 图片融合」可以把物体图<b>直接拖进面板</b>，不用点选择。</li>
-          </ul>
-        </div>
-      </details>
-
-      <details class="help" id="helpModels">
-        <summary>⬇ 模型下载与安装</summary>
-        <div class="help-body">
-          <p>模型全部放在 ComfyUI 的 <code>models\</code> 下；放完点面板的「↻ 重新读取模型列表」（必要时重启 ComfyUI）。文件名不用改，<b>放进对应目录</b>就会被识别。</p>
-          <table>
-            <tr><th>用途</th><th>放哪</th><th>文件名示例 / 说明</th></tr>
-            <tr><td>主模型（Qwen）</td><td><code>models\diffusion_models\</code></td><td>qwen-image-2.1-int8-*.safetensors（8G 选 int8，16G+ 可 bf16）</td></tr>
-            <tr><td>文本编码器</td><td><code>models\text_encoders\</code></td><td>qwen3vl_8b_int8-*.safetensors <span class="warn-line">（别拿 32B 那个，是视频用的）</span></td></tr>
-            <tr><td>VAE</td><td><code>models\vae\</code></td><td>qwen_image_2.1_vae_bf16.safetensors</td></tr>
-            <tr><td>SD / SDXL（备选）</td><td><code>models\checkpoints\</code></td><td>sd_xl_base_1.0.safetensors</td></tr>
-            <tr><td>放大模型</td><td><code>models\upscale_models\</code></td><td>RealESRGAN_x4plus.pth（通用）/ _anime_6B.pth（二次元）</td></tr>
-            <tr><td>抠图（Q 版小人）</td><td><code>models\background_removal\</code></td><td>birefnet.safetensors</td></tr>
-            <tr><td>LoRA（可选）</td><td><code>models\loras\</code></td><td>面板会自动匹配与主模型同名的 LoRA</td></tr>
-          </table>
-          <h4>去哪下载</h4>
-          <ul>
-            <li>Qwen-Image 2.1：HuggingFace 搜 <code>Comfy-Org/Qwen-Image_ComfyUI</code>（含 split_files 三件套）；量化版搜 <code>city96</code> 的 int8/gguf 仓库。</li>
-            <li>SD / SDXL：<code>stabilityai/stable-diffusion-xl-base-1.0</code>。</li>
-            <li>放大 / 抠图：搜 <code>RealESRGAN</code>、<code>BiRefNet</code>；ComfyUI 管理器的 Model Manager 也能一键装。</li>
-            <li>国内下载慢：可用魔搭 ModelScope，或让 ComfyUI 管理器挂镜像。</li>
-          </ul>
-          <h4>放完还是看不到？</h4>
-          <ul>
-            <li>目录名要完全一致：Qwen 的 UNET 是 <code>diffusion_models</code>，不是 <code>unet</code> 也不是 <code>checkpoints</code>。</li>
-            <li>桌面版把模型放在共享目录 <code>ComfyUI-Shared\models</code>，无头模式需要它挂进去（面板启动器会自动生成 extra_model_paths.yaml）。</li>
-            <li>点「↻ 重新读取模型列表」不生效 → 重启 ComfyUI。</li>
-          </ul>
-        </div>
-      </details>
-
-      <details class="help" id="helpTiers">
-        <summary>🎛 显卡 / 显存 → 推荐参数</summary>
-        <div class="help-body">
-          <p>下表是「能跑稳」的经验值，点上面「按本机自动调参」会直接照这个填。核心矛盾只有一个：<b>显存</b>。</p>
-          <table>
-            <tr><th>显存档</th><th>常见显卡</th><th>参考分辨率</th><th>步数</th><th>导出长边</th></tr>
-            <tr><td>≤6G</td><td>RTX 3050 Laptop / 2060 6G / 1660Ti</td><td>768</td><td>20</td><td>1536</td></tr>
-            <tr><td>8G</td><td>RTX 3060Ti / 3070 / 4060 / 4060Ti / <b>4070 Laptop</b></td><td>1024</td><td>24–30</td><td>2048</td></tr>
-            <tr><td>12G</td><td>RTX 3060 12G / 4070 / 4070S</td><td>1280</td><td>30</td><td>2560</td></tr>
-            <tr><td>16G</td><td>RTX 4060Ti 16G / 4080 / 5070Ti</td><td>1536</td><td>30</td><td>3072</td></tr>
-            <tr><td>24G+</td><td>RTX 3090 / 4090 / 5090</td><td>1536</td><td>30–40</td><td>4096</td></tr>
-          </table>
-          <p class="tiny">本机参考：RTX 4070 Laptop 8G + Qwen-Image 2.1 int8，1024 / 24 步 ≈ 33s；1024 / 12 步 ≈ 17s。显存不够时的典型症状是生成到一半 ComfyUI 进程直接退出。</p>
-          <h4>其它参数怎么配</h4>
-          <ul>
-            <li><b>CFG</b>：Qwen-Image 固定 <code>1</code>（再高会糊/发灰）；SD/SDXL 用 <code>6–7</code>。</li>
-            <li><b>负面提示词只在 CFG &gt; 1 时起作用</b>：Qwen 用 cfg=1，负面词不参与采样（切到 SD 架构才会生效）。预设里已经按这个前提写好，正常使用不用管它。</li>
-            <li><b>采样器</b>：Qwen 用 <code>euler / simple</code>；SDXL 用 <code>dpmpp_2m / karras</code>。</li>
-            <li><b>步数</b>：Qwen 让 24–30（低于 20 细节虚）；SD 20–28。</li>
-            <li><b>重绘强度</b>（SD 图生图/局部重绘）：想保留原图 0.35–0.5，想大改 0.6–0.75。</li>
-            <li><b>羽化 / 扩展</b>（局部重绘）：羽化 8–16、扩展 4–8，边缘才不会硬切。</li>
-            <li><b>放大</b>：目标长边尽量 ≤ 4096（8G 卡），越大越容易 OOM。</li>
-          </ul>
-        </div>
-      </details>
-
-      <details class="help" id="helpTrouble">
-        <summary>🩺 常见现象 → 该调什么</summary>
-        <div class="help-body">
-          <table>
-            <tr><th>现象</th><th>先动这里</th></tr>
-            <tr><td>生成到一半 ComfyUI 退出 / 面板提示「进程挂了」</td><td>参考分辨率降一档（1024→768）、导出长边 −512；放大目标降到 4096 内</td></tr>
-            <tr><td>出图糊、细节不够</td><td>参考分辨率升一档；步数 24→30；提示词补材质/光线描述</td></tr>
-            <tr><td>一张要等太久</td><td>步数降到 20–24；分辨率降一档；关掉「4×」改 2×</td></tr>
-            <tr><td>图生图和原图差太远</td><td>提示词写清「保留脸/姿势/背景不变」；分辨率先降一档看构图</td></tr>
-            <tr><td>局部重绘边缘生硬</td><td>羽化 8–16、扩展 4–8；提示词点明「只改选区内的 XX」</td></tr>
-            <tr><td>Q 版小人出来是白底 / 空白</td><td>提示词里的「纯白背景、不要投影」别删；面板会提示「没检测到成片白底」</td></tr>
-            <tr><td>模型槽是空的 / 没有新放的模型</td><td>点「↻ 重新读取模型列表」；还不行重启 ComfyUI；再检查目录名</td></tr>
-            <tr><td>连接一直「未连接」</td><td>ComfyUI 没开 / 端口不是 8188 / 防火墙拦了 127.0.0.1</td></tr>
-          </table>
-        </div>
-      </details>
       <div class="about">
-        <div><b id="aboutVer">Stars-AI v0.7.40</b> · Photoshop × ComfyUI</div>
+        <div><b id="aboutVer">Stars-AI v0.7.58</b> · Photoshop × ComfyUI</div>
         <div class="tiny" id="aboutTemp">临时目录：—</div>
         <div class="tiny" id="aboutServer">ComfyUI：—</div>
       </div>
@@ -401,7 +363,6 @@
         <p>「NSFW 工坊」会调用你本机的 ComfyUI 模型生成<b>成人向（18+ / NSFW）</b>图像。进入前请逐条确认：</p>
         <ol>
           <li>本功能<b>仅限已满 18 周岁的成年人</b>使用。未满 18 周岁请立即关闭本面板并停止使用。</li>
-          <li>严禁生成、传播任何涉及未成年人的性相关内容（包括"童颜 / 幼态 / 学生"等暗示）。违反者后果自负，与本插件作者无关。</li>
           <li>所有内容由你本机的模型与本机操作产生，<b>不会上传到任何云端服务</b>；请自行承担使用后果与全部法律责任，并遵守你所在地的法律法规。</li>
           <li>请勿用于传播、牟利，或处理未经他人同意的真人肖像。</li>
           <li>作者与插件不对生成的内容及其用途承担任何责任。同意后你可以在 NSFW 工坊里点「锁定」随时撤回。</li>

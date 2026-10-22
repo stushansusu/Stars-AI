@@ -29,6 +29,21 @@ const CDP_PORT = Number(argOf("cdp", 9223));
 const WIDTHS = argOf("widths", "320,340,360,380,420").split(",").map(Number);
 const ROOT = path.resolve(__dirname, "..");
 
+/* 0.7.45：版本漂移横幅默认是 .hidden 的，而 AUDIT 会跳过 .hidden 子树 ——
+ * 也就是说它一旦默认藏起来就永远测不到。这里显式把它摊开并塞最长的真实文案
+ * （图标 + 长句 + 动作按钮 + × 全在），量的是最坏情况。 */
+const SHOW_BANNER = `(() => {
+  const bar = document.getElementById('verBar');
+  if (!bar) return 0;
+  bar.classList.remove('hidden');
+  bar.className = 'verbar err';
+  const tx = document.getElementById('verBarTx');
+  if (tx) tx.textContent = '磁盘上版本就不一致：面板 0.7.45 / PS 脚本 0.7.44 —— 点「重载脚本」；还不行就重跑 install.ps1';
+  const act = document.getElementById('verBarAct');
+  if (act) act.classList.remove('hidden');
+  return 1;
+})()`;
+
 function findChrome() {
   const cands = [
     process.env.CHROME_PATH,
@@ -148,6 +163,9 @@ const AUDIT = `(() => {
     await sleep(1400);
     const rows = [];
 
+    await evalu(SHOW_BANNER);
+    await sleep(150);
+    rows.push(["顶栏版本横幅（最长文案）", JSON.parse(await evalu(AUDIT))]);
     rows.push(["二次元·全部", JSON.parse(await evalu(AUDIT))]);
     // 选一张带「补充条件」的卡（会多出输入行 + 快捷词）
     await evalu("(()=>{const c=[...document.querySelectorAll('#animeGrid .anime-card')].find(x=>x.textContent.includes('更换背景'));if(c)c.click()})()");

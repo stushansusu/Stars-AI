@@ -68,7 +68,17 @@
   function call(fn, args) {
     var parts = [];
     (args || []).forEach(function (a) { parts.push(escapeUnicode(JSON.stringify(a === undefined ? null : a))); });
-    return evalScript("StarsAI." + fn + "(" + parts.join(",") + ")");
+    return evalScript("StarsAI." + fn + "(" + parts.join(",") + ")").then(null, function (e) {
+      var msg = String((e && e.message) || e);
+      /* 0.7.49：EvalScript error. 不告诉你是哪个接口挂了。
+       * 最常见的情况是「PS 里的脚本还是旧版本、根本没有这个 api」——
+       * 那种情况下所有接口都报同一句话，用户只能瞎猜。这里把接口点名，并给出下一步。 */
+      if (msg.indexOf("EvalScript error") >= 0) {
+        throw new Error(msg + "（接口 StarsAI." + fn +
+          " 不存在或执行出错 —— PS 里的脚本可能还是旧版本：看面板顶栏横幅，或重启 Photoshop 让 boot.jsx 重新读一遍）");
+      }
+      throw e;
+    });
   }
 
   var mockDoc = null;
@@ -117,6 +127,56 @@
     place: function (path, opts) {
       if (!hasCEP) return Promise.resolve({ action: "layer", name: "Stars-AI" });
       return call("place", [path, opts || {}]);
+    },
+
+    // 0.7.46：DR 风格精修（PS 原生滤镜，不走 AI）。kind: smooth / despeckle / sharpen / skintone
+    polish: function (kind, opts) {
+      if (!hasCEP) {
+        return Promise.resolve({
+          action: "polish", kind: kind, label: kind, layer: "Stars-AI · " + kind,
+          radius: 4, threshold: 15, opacity: 70, blend: "normal",
+          hadSelection: false, selection: null, historyStep: true,
+          doc: { w: 2400, h: 1600 }
+        });
+      }
+      return call("polish", [kind, opts || {}]);
+    },
+
+    /* 0.7.51：ExtendScript 侧的**裸诊断** —— 故意不依赖 StarsAI 存在。
+     * 用来回答最基本的问题：「PS 里到底有没有这个脚本？」
+     * 之前「连 StarsAI.ping 都不存在」时，面板只能报「脚本执行失败」，
+     * 完全区分不出是「版本旧」「对象不存在」还是「文件没读到」。 */
+    probeScript: function () {
+      if (!hasCEP) return Promise.resolve({ starsai: "preview" });
+      var probe =
+        '(function(){' +
+        'var o={};' +
+        'try{o.starsai=typeof StarsAI;}catch(e0){o.starsai="err";}' +
+        'try{o.dollar=typeof $;}catch(e1){o.dollar="err";}' +
+        'try{o.evalFile=($&&typeof $.evalFile==="function")?"yes":"no";}catch(e2){o.evalFile="no";}' +
+        'try{o.ps=String(app.version);}catch(e3){o.ps="?";}' +
+        'try{o.userData=Folder.userData.fsName;}catch(e4){o.userData="?";}' +
+        'var base="";' +
+        'try{base=Folder.userData.fsName+"/Adobe/CEP/extensions/Stars-AI/jsx/";}catch(e5){}' +
+        'try{var f=new File(base+"host.jsx");o.hostExists=f.exists;o.hostLen=f.length;}catch(e6){o.hostExists="?";}' +
+        'try{var b=new File(base+"boot.jsx");o.bootExists=b.exists;o.bootLen=b.length;}catch(e7){o.bootExists="?";}' +
+        /* 0.7.52：这三项决定「能不能在运行期装脚本」。
+         * 如果 eval / File 任一不可用，那 reloadScript 的三条路都会失败 —— 只能靠 ScriptPath 直连。 */
+        'try{o.fileCtor=typeof File;}catch(e9){o.fileCtor="?";}' +
+        'try{o.evalFn=typeof eval;}catch(e10){o.evalFn="?";}' +
+        'try{o.evalTest=String(eval("1+1"));}catch(e11){o.evalTest="err:"+e11.message;}' +
+        'try{var t=new File(base+"host.jsx");o.canOpen=t.open("r");if(o.canOpen){t.close();}}catch(e12){o.canOpen="err:"+e12.message;}' +
+        'try{o.text=JSON.stringify(o);}catch(e8){o.text="jsonfail";}' +
+        'return o.text;' +
+        '})()';
+      return new Promise(function (resolve, reject) {
+        cep.evalScript(probe, function (r) {
+          if (!r || r === "EvalScript error.") {
+            return reject(new Error("连裸诊断都执行失败（" + String(r) + "）—— Photoshop 的 ExtendScript 引擎可能没起来"));
+          }
+          try { resolve(JSON.parse(r)); } catch (e) { resolve({ raw: String(r) }); }
+        });
+      });
     },
 
     openDoc: function (path) {
@@ -513,27 +573,97 @@
     return "";
   }
 
-  // 重载 host.jsx 进 ExtendScript 引擎，并**验证版本真的换了**（不验证等于没重载）
+  /* 重载 host.jsx 进 ExtendScript 引擎，并**验证版本真的换了**（不验证等于没重载）。
+   *
+   * 0.7.48 大改：改成「让 ExtendScript 自己从磁盘读」，不再把源码当字符串塞进 evalScript。
+   * 为什么（坑 #19）：CEP 的 evalScript 传长脚本会在 6 万字符出头被截断，
+   * 回调只拿到 "EvalScript error."。host.jsx 0.7.47 已经 67,455 字符（77 KB UTF-8），
+   * 于是「重载脚本」必失败、内存里仍是旧脚本、面板一直报版本对不上 ——
+   * 而自检里当然也看不到新加的探针，特别容易被误判成「PS 不支持这些滤镜」。
+   *
+   * $.evalFile + File.encoding="UTF-8" 是 ExtendScript 原生读取：无长度上限，
+   * 也不会因为我们的文件是「无 BOM UTF-8」而按 GBK 解成乱码。
+   * 旧路子保留为回退（短文件仍然最好用）；两个都失败时把体积报出来，别让人去猜。 */
   PS.reloadScript = function () {
+    var file = "", size = 0, chars = 0, code = "";
     try {
       if (!hasCEP) return notReady();
-      var file = findJsxFile();
+      file = findJsxFile();
       if (!file) return Promise.reject(new Error("找不到 jsx/host.jsx，试着重启 Photoshop"));
-      var code = nodeFs.readFileSync(file, "utf8");
-      return new Promise(function (resolve, reject) {
-        cep.evalScript(code, function (r) {
-          if (r === "EvalScript error.") return reject(new Error("脚本重载失败（EvalScript error）"));
-          // 重载后立刻问一次版本号，确认引擎里真的是新脚本
-          cep.evalScript("StarsAI.ping()", function (p) {
-            var jsx = null;
-            try { jsx = JSON.parse(p).jsx; } catch (e) {}
-            resolve({ ok: true, bytes: code.length, at: file, jsx: jsx });
+      try { size = nodeFs.statSync(file).size || 0; } catch (eS) {}
+      try { code = nodeFs.readFileSync(file, "utf8"); chars = code.length; } catch (eC) {}
+    } catch (e0) {
+      return Promise.reject(e0);
+    }
+
+    return new Promise(function (resolve, reject) {
+      function done(how) {
+        cep.evalScript("StarsAI.ping()", function (p) {
+          var jsx = null;
+          try { jsx = JSON.parse(p).jsx; } catch (e1) {}
+          if (!jsx) {
+            return reject(new Error("脚本重载后问不到版本（StarsAI.ping 不可用）—— 重启 Photoshop 让 manifest 重新加载"));
+          }
+          resolve({ ok: true, bytes: size, chars: chars, at: file, jsx: jsx, via: how });
+        });
+      }
+
+      // ① 首选：ExtendScript 自己读文件（无长度限制）
+      var quoted = "'" + String(file).replace(/\\/g, "\\\\").replace(/'/g, "\\'") + "'";
+      var loader = 'var __starsaiMain = new File(' + quoted + '); ' +
+                   '__starsaiMain.encoding = "UTF-8"; $.evalFile(__starsaiMain);';
+      cep.evalScript(loader, function (r1) {
+        if (r1 !== "EvalScript error.") return done("evalFile");
+
+        /* ② 不依赖 `$` 的兜底：File 读全文 + eval()。
+         * `$` 在 CEP 的 evalScript 环境里不一定可用，一旦没有，① 会直接 EvalScript error，
+         * 而源码在本进程内部读完再 eval，同样不经过 CEP 的字符串参数通道，没有长度上限。 */
+        var loader2 = 'var __starsaiF2 = new File(' + quoted + '); ' +
+                      '__starsaiF2.encoding = "UTF-8"; __starsaiF2.open("r"); ' +
+                      'var __starsaiSrc2 = __starsaiF2.read(); __starsaiF2.close(); eval(__starsaiSrc2);';
+        cep.evalScript(loader2, function (r2) {
+          if (r2 !== "EvalScript error.") return done("file+eval");
+
+          // ③ 最后：整串源码（短文件可用；长文件必被截断，所以放最后）
+          if (!code) {
+            return reject(new Error("脚本重载失败（三种方式都不行），且读不到 jsx/host.jsx"));
+          }
+          cep.evalScript(code, function (r3) {
+            if (r3 !== "EvalScript error.") return done("evalScript");
+            reject(new Error(
+              "脚本重载失败（evalFile / File+eval / 源码字符串 三种都失败）· 文件 " + chars + " 字符 / " +
+              Math.round(size / 1024) + " KB。请重启 Photoshop（启动时走 boot.jsx 从磁盘读）"
+            ));
           });
         });
       });
-    } catch (e) {
-      return Promise.reject(e);
-    }
+    });
+  };
+
+  /* 0.7.45：把「磁盘上的版本号」读出来，用来发现版本漂移。
+   * 为什么需要它：js/app.js 只在面板加载时执行一次。改了 js 不重开面板，
+   * 面板里跑的还是旧代码，而日志首行的 build 显示的也是旧号 —— 看日志根本分辨不出来。
+   * 三个数字必须相等：内存里的 BUILD · 磁盘 app.js 的 BUILD · 磁盘 host.jsx 的 JSX_BUILD。
+   * 同步返回（只读两个小文件的正则），读不到就给空串，调用方按「未知」处理。 */
+  PS.diskBuild = function () {
+    var out = { panel: "", jsx: "", dir: "" };
+    try {
+      if (!nodeFs || !nodePath) return out;
+      var jsxFile = findJsxFile();
+      if (!jsxFile) return out;
+      out.dir = nodePath.dirname(nodePath.dirname(jsxFile));
+      try {
+        var t1 = nodeFs.readFileSync(nodePath.join(out.dir, "js", "app.js"), "utf8");
+        var m1 = /var\s+BUILD\s*=\s*["']([0-9][0-9.]*)["']/.exec(t1);
+        if (m1) out.panel = m1[1];
+      } catch (e1) {}
+      try {
+        var t2 = nodeFs.readFileSync(jsxFile, "utf8");
+        var m2 = /JSX_BUILD\s*=\s*["']([0-9][0-9.]*)["']/.exec(t2);
+        if (m2) out.jsx = m2[1];
+      } catch (e2) {}
+    } catch (e) {}
+    return out;
   };
 
   PS.detectComfy = function (pref, kind) {

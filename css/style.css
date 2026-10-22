@@ -313,6 +313,44 @@ textarea.ta.sm { min-height: 44px; font-size: 11px; }
 .search:focus-within > .ic { color: var(--accent-2); }
 
 /* ---------- 连接条 ---------- */
+/* ---------- 版本漂移横幅（0.7.45） ----------
+ * 三方版本（面板内存 BUILD / 磁盘 app.js BUILD / 磁盘 host.jsx JSX_BUILD）不一致时
+ * 挂在顶栏下方。逻辑见 app.js checkBuildDrift()。
+ * 三档：warn=面板没重开（最常见）· err=磁盘版本本身就不一致（要重载脚本/重装）· ok=刚同步成功。
+ * 窄面板下文本必须能折行，否则 320px 会把 × 顶出边界（见 NEXT-SESSION 坑 #13）。 */
+.verbar {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 8px 12px 0;
+  padding: 7px 9px;
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--warn);
+  border-radius: var(--radius-s);
+  background: var(--surface-2);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+.verbar.warn { border-left-color: var(--warn); background: rgba(251, 191, 36, 0.07); }
+.verbar.err  { border-left-color: var(--err);  background: rgba(248, 113, 113, 0.09); }
+.verbar.ok   { border-left-color: var(--ok);   background: rgba(52, 211, 153, 0.09); }
+.verbar .verbar-ic { flex: 0 0 auto; width: 12px; text-align: center; font-weight: 700; }
+.verbar.warn .verbar-ic { color: var(--warn); }
+.verbar.err  .verbar-ic { color: var(--err); }
+.verbar.ok   .verbar-ic { color: var(--ok); }
+.verbar .verbar-tx { flex: 1 1 auto; min-width: 0; word-break: break-word; }
+.verbar .verbar-x {
+  flex: 0 0 auto;
+  width: 18px; height: 18px;
+  padding: 0; border: 0; border-radius: 4px;
+  background: transparent; color: var(--text-3);
+  font-size: 14px; line-height: 1;
+  cursor: pointer;
+}
+.verbar .verbar-x:hover { color: var(--text); background: var(--surface-3); }
+
 .conn { display: flex; gap: 6px; padding: 8px 12px 2px; flex: 0 0 auto; }
 .conn .in { flex: 1 1 auto; font-family: Consolas, "SFMono-Regular", monospace; font-size: 10.5px; height: 26px; }
 #btnLaunch { padding: 4px 8px; height: 26px; }
@@ -572,6 +610,50 @@ textarea.ta.sm { min-height: 44px; font-size: 11px; }
 
 .pactions { display: flex; gap: 6px; margin-top: 8px; }
 .pactions .btn { flex: 1 1 0; min-width: 0; }
+
+/* ---------- DR 精修区块（0.7.47） ----------
+ * 0.7.46 那条精修按钮挤在结果区按钮行下面，现在独立成一块（标题 + 强度档 + 三组按钮）。
+ * 宽度纪律：面板最窄 320px —— 三组按钮必须能换行，「基础/细节/光影」标签用固定宽度左对齐，
+ * 否则窄面板下标签和按钮会互相挤。 */
+.dr-note {
+  margin-top: 5px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text-4);
+}
+.dr-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 9px;
+  min-width: 0;
+}
+.dr-row .dr-segs { flex: 1 1 auto; margin: 0; min-width: 0; }
+.dr-segs .seg { flex: 0 0 auto; padding: 3px 12px; font-size: 10px; }
+.dr-group {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 8px;
+  min-width: 0;
+}
+.dr-cap {
+  flex: 0 0 34px;
+  padding-top: 5px;
+  font-size: 10px;
+  color: var(--text-4);
+  letter-spacing: .3px;
+}
+.dr-btns {
+  flex: 1 1 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+}
+.dr-btns .btn { flex: 0 0 auto; }
+.dr.busy { opacity: .55; pointer-events: none; }
+
 .thumbs { display: flex; gap: 6px; margin-top: 8px; overflow-x: auto; padding-bottom: 2px; }
 .thumbs:empty { display: none; }
 .thumb {

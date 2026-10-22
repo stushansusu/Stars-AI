@@ -219,7 +219,7 @@
     return scored[0].s > floor ? scored[0].n : "";
   }
 
-  // diffusion_models 里常见的"不是 Qwen-Image"的模型（视频 / 别的架构）：
+  // diffusion_models 里常见的"不是本面板用的架构"的模型（视频 / 其它架构）：
   // 以前 avoid 扣的分被死代码吞掉，只要有任意一个文件就会被误判成 qwen 架构
   var AVOID_UNET = [/minimax/i, /video/i, /fl2va/i, /t2v/i, /i2v/i, /wan/i, /hunyuan/i,
                     /ltxv/i, /mochi/i, /cosmos/i, /sd3/i, /flux/i, /ideogram/i];

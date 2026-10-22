@@ -22,7 +22,7 @@
   var MODES = {
     txt2img: {
       label: "文生图",
-      hint: "<b>纯文字出图</b>：Qwen 是方形输出（分辨率=边长），SD 可自定义宽高。",
+      hint: "<b>纯文字出图</b>：该架构是方形输出（分辨率=边长），SD 可自定义宽高。",
       placeholder: "例：极简产品主视觉，白色陶瓷杯，柔和侧光，浅灰背景",
       chips: ["极简产品主视觉，柔和侧光", "雨后街道，日系胶片感", "白色陶瓷杯，晨光，静物摄影", "深色背景上的悬浮水晶，电影光"]
     },
@@ -34,7 +34,7 @@
     },
     inpaint: {
       label: "局部重绘",
-      hint: "<b>先框选</b>要改的区域。<b>Qwen 看不到选区</b>，所以提示词要写清「这块该变成什么」——面板会把选区位置/占比自动补进提示词。合成时只保留选区内像素（按羽化过渡），选区外保持原样不动。",
+      hint: "<b>先框选</b>要改的区域。<b>模型看不到选区</b>，所以提示词要写清「这块该变成什么」——面板会把选区位置/占比自动补进提示词。合成时只保留选区内像素（按羽化过渡），选区外保持原样不动。",
       placeholder: "例：把选区内的花瓶替换成一束干花",
       chips: ["替换成一束干花", "修掉这块的瑕疵与污点", "补全被遮挡的边缘", "换成玻璃材质"]
     },
@@ -52,10 +52,10 @@
     }
   };
 
-  var BUILD = "0.7.40";
+  var BUILD = "0.7.58";
 
   /* 显存档位 → 推荐参数（设置里的「显卡 / 显存 → 推荐参数」表就是这张表）。
-   * 依据：Qwen-Image 2.1 int8 在 8G 上 1024 稳、1280 起就危险；SD/SDXL 同分辨率更省。 */
+   * 依据：实测 8G 显存上 1024 参考分辨率稳定，1280 起容易把进程逼退。 */
   var TIERS = [
     { id: "x6", max: 6, label: "≤6G", resolution: 768, steps: 20, maxEdge: 1536, timeout: 20, note: "只跑 int8 量化，别碰 1024 以上" },
     { id: "x8", max: 9, label: "6–9G（8G 档）", resolution: 1024, steps: 30, maxEdge: 2048, timeout: 15, note: "int8 主力档；上 1280/1536 很容易把进程逼退" },
@@ -86,7 +86,8 @@
       maxEdge: 2048,        // 编辑类任务导出时按长边缩小，直接决定显存压力
       skipAi: true,         // 导出时跳过「之前贴回的 AI 图层」——否则第二次生成会把上一张当参考图（越滚越脏）
       autoTune: true,       // 连接 / 换架构 / 换机器时按显存自动调参
-      tunedSig: ""          // 已按哪套组合调过参，避免每次都覆盖用户手调
+      tunedSig: "",         // 已按哪套组合调过参，避免每次都覆盖用户手调
+      polishStrength: "normal"  // 0.7.47 DR 精修强度：light / normal / heavy（影响半径+不透明度+锐化量）
     },
     hw: null,               // { name, vram } 来自 ComfyUI /system_stats
     hwTier: null,           // 命中的显存档位
@@ -129,6 +130,85 @@
     t.className = "toast show " + (type || "");
     clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { t.className = "toast"; }, type === "err" ? 5200 : 2600);
+  }
+
+  /* ---------------- 版本漂移横幅（0.7.45） ----------------
+   * 起因：NEXT-SESSION 记的「本会话最贵的一次事故」—— 改了 js 没重开面板，
+   * 日志首行还是旧 build，于是按错误的版本推理了半天。
+   * 这里把三个数字摆到顶栏，不一致就直接挂条，不用再翻日志：
+   *   ① 内存里的 BUILD（面板里真正在跑的）
+   *   ② 磁盘 js/app.js 的 BUILD
+   *   ③ 磁盘 jsx/host.jsx 的 JSX_BUILD（以及运行时的 ping().jsx，由 init 自动同步）
+   * 横幅只挂一条，优先级：同步失败(err) > 磁盘上就不一致(err) > 面板没重开(warn)。 */
+  var verDismissed = false;   // 只作用于本次面板生命周期 —— 重开面板自然会重新检查，不落盘
+
+  function verBarShow(level, text, actLabel, actFn) {
+    var bar = $("verBar");
+    if (!bar) return;
+    if (level === "warn" && verDismissed) return;
+    bar.className = "verbar " + (level === "err" ? "err" : level === "ok" ? "ok" : "warn");
+    $("verBarIc").textContent = level === "err" ? "✕" : level === "ok" ? "✓" : "⚠";
+    $("verBarTx").textContent = text;
+    var act = $("verBarAct");
+    if (actLabel && typeof actFn === "function") {
+      act.textContent = actLabel;
+      act.classList.remove("hidden");
+      act.onclick = function () { try { actFn(); } catch (e) {} };
+    } else {
+      act.classList.add("hidden");
+      act.onclick = null;
+    }
+    // warn / ok 允许关掉（同一次会话内不再烦你）；err 不给关，只能修好
+    $("verBarClose").classList.toggle("hidden", level === "err");
+    S.verLevel = level;
+  }
+
+  function verBarHide() {
+    var bar = $("verBar");
+    if (bar) bar.className = "verbar hidden";
+    S.verLevel = "";
+  }
+
+  /* 磁盘视角的漂移检查 —— 纯同步（只读两个小文件的正则），返回 null 或 { level, text, actLabel } */
+  function checkBuildDrift() {
+    var disk = null;
+    try { disk = PS.diskBuild ? PS.diskBuild() : null; } catch (e) { disk = null; }
+    if (!disk) return null;
+    if (disk.panel && disk.panel !== BUILD) {
+      return {
+        level: "warn",
+        text: "面板里跑的是 " + BUILD + "，磁盘上已经是 " + disk.panel +
+              " —— 关掉面板再打开才会用上新代码（「改了没效果」最常见的原因）"
+      };
+    }
+    if (disk.panel && disk.jsx && disk.jsx !== disk.panel) {
+      return {
+        level: "err",
+        text: "磁盘上版本就不一致：面板 " + disk.panel + " / PS 脚本 " + disk.jsx +
+              " —— 点「重载脚本」；还不行就重跑 install.ps1",
+        actLabel: "重载脚本"
+      };
+    }
+    return null;
+  }
+
+  async function reloadJsxNow() {
+    try {
+      var r = await PS.reloadScript();
+      var p = await PS.ping();
+      if (String(p.jsx) === BUILD) {
+        log("PS 脚本已重载到 " + BUILD + "（方式 " + (r.via || "?") + " · " + (r.at || "?") + "）", "ok");
+        verBarShow("ok", "PS 脚本已重载到 " + BUILD);
+        setTimeout(function () { if (S.verLevel === "ok") verBarHide(); }, 2600);
+      } else {
+        log("重载后 PS 脚本仍是 " + (p.jsx || "未知") + " —— 已用方式 " + (r.via || "?") + " 装载，" +
+            "但版本没换（可能是文件路径不对）；js 只在面板加载时读一次，请关掉面板重开", "err");
+        verBarShow("err", "重载后 PS 脚本仍是 " + (p.jsx || "未知") + " —— 关掉面板重开，或重启 PS", "再试一次", reloadJsxNow);
+      }
+    } catch (e) {
+      log("重载 PS 脚本失败：" + e.message, "err");
+      verBarShow("err", "重载 PS 脚本失败：" + e.message, "再试一次", reloadJsxNow);
+    }
   }
 
   function setStatus(state, text) {
@@ -379,7 +459,7 @@
     if (S.arch === "qwen") {
       if (!caps.TextEncodeQwenImage21) {
         var w = el("div", "tiny");
-        w.textContent = "当前 ComfyUI 没有 Qwen 节点，请改用 SD 大模型模式";
+        w.textContent = "当前 ComfyUI 缺少对应的文本编码节点，请改用大模型模式";
         box.appendChild(w);
       }
       addSlot("unet", "UNET 模型", o.unet, S.models.unet, false);
@@ -390,7 +470,7 @@
       addSlot("ckpt", "大模型", o.ckpt, S.models.ckpt, false);
       if (!(o.ckpt || []).length) {
         var nw = el("div", "tiny");
-        nw.textContent = "本机 checkpoints 目录为空：请换用 Qwen 模式，或把 SD/SDXL 大模型放进 ComfyUI 的 models/checkpoints";
+        nw.textContent = "本机 checkpoints 目录为空：请切换架构，或把大模型放进 ComfyUI 的 models/checkpoints";
         box.appendChild(nw);
       }
     }
@@ -528,7 +608,7 @@
     }
   }
 
-  // 本机到底能不能跑 Qwen / SD（架构选择不该落在一个"跑不起来"的状态上）
+  // 本机到底能不能跑各架构（架构选择不该落在一个"跑不起来"的状态上）
   function usableArches(caps) {
     var q = Flow.guess(caps, "qwen");
     var s = Flow.guess(caps, "sd");
@@ -553,10 +633,10 @@
       var guessed;
       if (S.arch === "qwen" && !u.qwenOk && u.sdOk) {
         guessed = u.s;
-        log("本机没有可用的 Qwen 模型（UNET/CLIP/VAE 或 Qwen 节点缺失），已自动切到 SD 大模型模式", "warn");
+        log("本机没有可用的默认架构模型（UNET/CLIP/VAE 或文本编码节点缺失），已自动切到大模型模式", "warn");
       } else if (S.arch === "sd" && !u.sdOk && u.qwenOk) {
         guessed = u.q;
-        log("本机没有 SD 大模型，已自动切到 Qwen 模式", "warn");
+        log("本机没有大模型，已自动切到默认架构", "warn");
       } else {
         guessed = (S.arch === "sd") ? u.s : u.q;
       }
@@ -579,7 +659,7 @@
         "放大 " + (caps.options.upscale || []).length
       ];
       log("模型读取完成：" + counts.join(" · "));
-      if (!caps.TextEncodeQwenImage21) log("提示：本机没有 Qwen-Image 节点，图生图请选 SD 模式", "warn");
+      if (!caps.TextEncodeQwenImage21) log("提示：本机缺少文本编码节点，图生图请换架构", "warn");
       maybeAutoTune();
     } catch (e) {
       log("读取模型失败：" + e.message, "err");
@@ -678,7 +758,7 @@
           if (!caps0.TextEncodeQwenImage21) throw new Error("本机 ComfyUI 没有 Qwen 节点，请改用 SD 大模型模式");
           if (!models.unet || !models.clip || !models.vae) throw new Error("模型没选全：UNET / 文本编码器 / VAE 都要选");
         } else if (!models.ckpt) {
-          throw new Error("本机没有大模型（checkpoints 为空）：请用 Qwen 模式，或先放入 SD/SDXL 模型");
+          throw new Error("本机没有大模型（checkpoints 为空）：请切换架构，或先放入 SD/SDXL 模型");
         }
       }
 
@@ -1203,6 +1283,107 @@
       log("写回失败：" + e.message, "err");
       toast("写回 PS 失败：" + e.message.slice(0, 80), "err");
       return false;
+    }
+  }
+
+  /* 0.7.47：DR 精修区块 —— 走 PS 原生滤镜，不经过 ComfyUI。
+   * 所以它不读提示词、不占显存、不排队：点完就出结果，可以反复叠。
+   * 失败原因一律回传到日志（「活动图层是组」「眼睛没框选」是最常见的两种）。 */
+  async function runPolish(kind, label) {
+    if (!PS.available) {
+      toast("预览模式下不能精修，要回到 Photoshop 里用", "err");
+      return;
+    }
+    /* 0.7.49：先看 PS 里的脚本有没有这个接口。
+     * 旧脚本（0.7.46 之前）根本没有 StarsAI.polish，打过去只会回来一句
+     * "EvalScript error."，在面板上表现为「Photoshop 脚本执行失败」—— 完全查不出原因。
+     * 与其让用户对着这句话猜，不如直接说人话。 */
+    if (S.psCaps && S.psCaps.polish === false) {
+      var tip = "PS 里的脚本是旧版本（" + (S.psJsx || "未知") + "），没有精修接口 —— 点设置里的「重载 PS 脚本」，还不行就重启 Photoshop";
+      log("精修不可用：" + tip, "err");
+      toast("精修不可用：脚本是旧版本", "err");
+      verBarShow("err", tip, "重载脚本", reloadJsxNow);
+      return;
+    }
+    var card = $("drCard");
+    if (card) card.classList.add("busy");
+    try {
+      var strength = (S.settings && S.settings.polishStrength) || "normal";
+      var r = await PS.polish(kind, { strength: strength });
+      var where = (r.hadSelection && r.selection)
+        ? ("选区 " + r.selection.w + "×" + r.selection.h)
+        : "整个图层";
+      var param = [];
+      if (r.radius != null) param.push("半径 " + r.radius + " / 阈值 " + r.threshold);
+      if (r.amount != null) param.push("锐化 " + r.amount);
+      if (r.via) param.push("滤镜 " + r.via);   // 0.7.56：报出实际用的是哪个滤镜（apply* 还是 ActionManager）
+      if (r.bright != null) param.push("提亮 " + r.bright);
+      if (r.sat != null) param.push("降饱和 " + r.sat);
+      if (r.feather != null) param.push("羽化 " + r.feather);
+      if (r.blend && r.blend !== "normal") param.push("混合 " + r.blend);
+      if (r.opacity != null) param.push("不透明度 " + r.opacity + "%");
+      log("精修 · " + label + "（" + (STRENGTH_LABEL[strength] || strength) + "）：" + where +
+          (param.length ? " · " + param.join(" · ") : "") +
+          " · 新层「" + r.layer + "」", "ok");
+      if (r.historyStep === false) {
+        log("⚠ 这次没能合并成一步历史记录，撤销可能要按两次 Ctrl+Z", "warn");
+      }
+      toast("已生成「" + r.layer + "」", "ok");
+    } catch (e) {
+      log("精修失败（" + label + "）：" + e.message, "err");
+      /* 0.7.50：如果撞的是 EvalScript error，顺手把 PS 侧**真实**的版本和接口情况打出来。
+       * 这条比错误本身有用得多 —— 一眼就能看出是「脚本是旧版本」还是「滤镜不支持」。 */
+      if (/EvalScript error|脚本执行失败/.test(e.message || "")) {
+        try {
+          var p2 = await PS.ping();
+          log("PS 侧实际状态：脚本 " + (p2.jsx || "未知（很旧）") + " · 面板 " + BUILD +
+              (p2.caps ? (" · 精修接口：" + (p2.caps.polish ? "有（" + p2.caps.polishKinds + " 种）" : "没有"))
+                       : " · 旧脚本 ping 不带 caps"),
+              "warn");
+        } catch (e2) {
+          log("连 PS 侧版本都问不到：" + e2.message, "err");
+        }
+      }
+      toast("精修失败：" + e.message, "err");
+    } finally {
+      if (card) card.classList.remove("busy");
+      refreshDrMeta();
+    }
+  }
+
+  var STRENGTH_LABEL = { light: "轻", normal: "中", heavy: "重" };
+
+  /* 区块右上角的状态：正在改哪个图层、是选区还是整幅。
+   * 读的是 PS.info()（已带 activeLayer）—— 图层组会在这里先暴露，
+   * 不用等点了按钮才报「活动图层是图层组」。 */
+  async function refreshDrMeta() {
+    var el0 = $("drMeta");
+    if (!el0) return;
+    if (!PS.available) { el0.textContent = "预览模式（回 PS 才能精修）"; return; }
+    try {
+      var info = await PS.info();
+      if (!info || !info.doc) { el0.textContent = "没有打开的文档"; return; }
+      var d = info.doc, L = d.activeLayer;
+      var parts = [];
+      if (!L) parts.push("没有活动图层");
+      else if (L.isGroup) parts.push("图层组「" + L.name + "」");
+      else parts.push("图层「" + L.name + "」");
+      if (d.hasSelection && d.selection) parts.push("选区 " + d.selection.w + "×" + d.selection.h);
+      else parts.push("整幅 " + d.width + "×" + d.height);
+      el0.textContent = parts.join(" · ");
+      el0.title = (L && L.isGroup)
+        ? "当前选中的是图层组 —— 先在 PS 里选一个像素图层"
+        : "点一下刷新";
+    } catch (e) {
+      el0.textContent = "读不到文档状态";
+    }
+  }
+
+  function syncStrengthSeg() {
+    var want = (S.settings && S.settings.polishStrength) || "normal";
+    var all = document.querySelectorAll("#drStrength .seg");
+    for (var i = 0; i < all.length; i++) {
+      all[i].classList.toggle("active", all[i].dataset.strength === want);
     }
   }
 
@@ -1985,6 +2166,12 @@
 
   function bind() {
     $("btnConnect").onclick = connect;
+    // 版本漂移横幅的关闭（err 级不允许关：它代表面板和脚本真的对不上，关掉等于藏事故）
+    $("verBarClose").onclick = function () {
+      if (S.verLevel === "err") return;
+      verDismissed = true;
+      verBarHide();
+    };
     // 点预览图 = 全屏看大图（面板窗口再小也能看全）
     $("previewImg").onclick = openLightbox;
     $("lightbox").onclick = closeLightbox;
@@ -2028,6 +2215,29 @@
       if (!r) return;
       if (!PS.reveal(r.path)) toast("无法打开文件：" + r.path, "err");
     };
+    // 0.7.47 DR 精修区块：8 个 PS 原生滤镜 + 3 档强度。都作用于「当前图层 / 当前选区」。
+    $("btnPolishSmooth").onclick = function () { runPolish("smooth", "磨皮"); };
+    $("btnPolishDespeckle").onclick = function () { runPolish("despeckle", "去斑"); };
+    $("btnPolishSharpen").onclick = function () { runPolish("sharpen", "锐化"); };
+    $("btnPolishSkintone").onclick = function () { runPolish("skintone", "肤色"); };
+    $("btnPolishEyes").onclick = function () { runPolish("eyes", "眼睛"); };
+    $("btnPolishTeeth").onclick = function () { runPolish("teeth", "牙齿"); };
+    $("btnPolishVignette").onclick = function () { runPolish("vignette", "暗角"); };
+    $("btnPolishDnb").onclick = function () { runPolish("dnb", "减淡加深"); };
+    (function bindStrength() {
+      var all = document.querySelectorAll("#drStrength .seg");
+      for (var i = 0; i < all.length; i++) {
+        all[i].onclick = function () {
+          var want = this.dataset.strength || "normal";
+          S.settings.polishStrength = want;
+          syncStrengthSeg();
+          saveSettings();
+          log("精修强度 → " + (STRENGTH_LABEL[want] || want), "");
+        };
+      }
+      syncStrengthSeg();
+    })();
+    $("drMeta").onclick = refreshDrMeta;
     function syncArchTitle() {
       var s = $("archSelect");
       s.title = s.selectedOptions[0] ? s.selectedOptions[0].textContent : "";
@@ -2285,6 +2495,12 @@
         var ping = await PS.ping();
         log("Photoshop " + ping.ps + " · 打开文档 " + ping.docs + " 个 · 面板 build " + BUILD +
           (ping.jsx ? (" · PS 脚本 " + ping.jsx) : " · PS 脚本版本未知"));
+        // 0.7.49：把 PS 自报的能力记下来 —— 精修按钮点下去之前就能判断「脚本是不是旧版本」
+        S.psCaps = ping.caps || null;
+        S.psJsx = ping.jsx || "";
+        // 0.7.45：先看磁盘 —— 「改了 js 没重开面板」正是日志里看不出来的那种事故（NEXT-SESSION 坑 #1）
+        var drift = checkBuildDrift();
+        var syncErr = "";
         // 自动把 PS 脚本同步到与面板一致的版本：CEP 只在面板加载时执行一次 ScriptPath，
         // 不这么做就会出现"改了 host.jsx 但行为还是旧的"这种极难排查的情况。
         if (!ping.jsx || String(ping.jsx) !== BUILD) {
@@ -2293,13 +2509,64 @@
             await PS.reloadScript();
             var ping2 = await PS.ping();
             if (String(ping2.jsx) === BUILD) log("PS 脚本已同步到 " + BUILD + "（无需重启 PS）", "ok");
-            else log("自动同步后仍是 " + (ping2.jsx || "未知") + " → 请在设置里手动点「重载 PS 脚本」，或关掉面板重开", "err");
+            else {
+              syncErr = "自动同步后 PS 脚本仍是 " + (ping2.jsx || "未知");
+              log(syncErr + " → 请在设置里手动点「重载 PS 脚本」，或关掉面板重开", "err");
+            }
           } catch (e) {
-            log("自动同步失败：" + e.message + "（请在设置里手动点「重载 PS 脚本」）", "err");
+            syncErr = "PS 脚本自动同步失败：" + e.message;
+            log(syncErr + "（请在设置里手动点「重载 PS 脚本」）", "err");
           }
         }
-      } catch (e) { log("Photoshop 握手失败：" + e.message, "err"); }
+        // 横幅只挂最需要用户看的一条：同步失败 > 脚本太旧（没有精修接口）> 磁盘上就不一致 > 面板没重开
+        if (syncErr) verBarShow("err", syncErr + " —— 点「重载脚本」或关掉面板重开", "重载脚本", reloadJsxNow);
+        else if (ping.caps && ping.caps.polish === false) {
+          verBarShow("err",
+            "PS 里的脚本是旧版本：没有精修接口（StarsAI.polish）—— 点「重载脚本」；还不行就重启 Photoshop",
+            "重载脚本", reloadJsxNow);
+        }
+        else if (drift) verBarShow(drift.level, drift.text, drift.actLabel, reloadJsxNow);
+      } catch (e) {
+        log("Photoshop 握手失败：" + e.message, "err");
+        /* 0.7.51：ping 都失败 = PS 里可能**根本没有 StarsAI 对象**（不是版本旧）。
+         * 这种情况下旧逻辑只会记一行日志，用户完全无从下手。
+         * 现在直接尝试自动装载一次 —— 走 reloadScript 的三条路径，都不依赖 StarsAI 存在。
+         * 于是「重开面板」本身就成了一次自愈。 */
+        var loaded = false;
+        try {
+          log("尝试自动装载 PS 脚本…", "warn");
+          var rr = await PS.reloadScript();
+          var p3 = await PS.ping();
+          S.psCaps = p3.caps || null;
+          S.psJsx = p3.jsx || "";
+          log("自动装载成功：PS 脚本 " + (p3.jsx || "?") + " · 方式 " + (rr.via || "?") +
+              " · " + (rr.at || "?"), "ok");
+          verBarHide();
+          loaded = true;
+        } catch (e4) {
+          log("自动装载失败：" + e4.message, "err");
+        }
+        if (!loaded) {
+          /* 装载失败才做裸诊断 —— 把「PS 里到底有没有脚本」摊开 */
+          try {
+            var pr = await PS.probeScript();
+            log("PS 侧裸诊断：" + JSON.stringify(pr), "warn");
+            if (pr.starsai === "undefined") {
+              verBarShow("err",
+                "PS 里完全没有 StarsAI 脚本（typeof StarsAI = undefined）—— boot.jsx 没加载成功。请重启 Photoshop",
+                "重载脚本", reloadJsxNow);
+            } else {
+              verBarShow("err",
+                "StarsAI 对象在，但 ping 调不通 —— 可能是残留的旧脚本。点「重载脚本」",
+                "重载脚本", reloadJsxNow);
+            }
+          } catch (e3) {
+            log("裸诊断也失败：" + e3.message, "err");
+          }
+        }
+      }
     }
+    refreshDrMeta();   // 0.7.47：DR 区块右上角先显示「当前图层 / 选区」，别等点了按钮才知道选错层
     connect();
   }
 

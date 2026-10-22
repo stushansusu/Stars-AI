@@ -1,7 +1,7 @@
 /* Stars-AI · UI 功能回归：搜索 / 收起 / 分类 / 运行时报错（无头 Chrome）
  * ------------------------------------------------------------------
  * 管什么：
- *   1. 工坊列表真的渲染出来了（31 / 30 张），搜索能过滤、能清空、没命中会给空状态；
+ *   1. 工坊列表真的渲染出来了（31 / 31 张），搜索能过滤、能清空、没命中会给空状态；
  *   2. 选完功能后工坊自动收起，且「提示词」被顶进首屏（这是 0.7.33 的核心改动，
  *      退回旧行为会让用户滚 1400px 才看到提示词）；
  *   3. 切分类 / 切 NSFW 正常；
@@ -17,6 +17,9 @@ const fs = require("fs");
 const os = require("os");
 
 const PORT = 8803, CDP = 9226, ROOT = path.resolve(__dirname, "..");
+/* 从 app.js 读出当前 BUILD，别在测试里硬编码版本号 ——
+ * 否则每次 bump 版本，[8] 的假 ping 就会对不上，横幅会走成 err 级、断言全挂。 */
+const BUILD = (/var\s+BUILD\s*=\s*"([0-9.]+)"/.exec(fs.readFileSync(path.join(ROOT, "js", "app.js"), "utf8")) || [])[1] || "0";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const getJson = (port, p) => new Promise((res, rej) => { http.get("http://127.0.0.1:" + port + p, (r) => { let b = ""; r.on("data", (c) => (b += c)); r.on("end", () => { try { res(JSON.parse(b)); } catch (e) { rej(e); } }); }).on("error", rej); });
 const chrome = ["C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe", "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"].find(fs.existsSync);
@@ -102,8 +105,8 @@ const ok = (name, cond, extra) => { if (cond) { pass++; console.log("  ✓ " + n
 
   await evalu("(()=>{const b=[...document.querySelectorAll('.vtab')].find(x=>x.dataset.view==='nsfw');b.click()})()");
   await sleep(400);
-  ok("NSFW 工坊渲染 30 张", await evalu("document.querySelectorAll('#nsfwGrid .anime-card').length") === 30);
-  ok("NSFW 计数徽章 30", (await evalu("document.getElementById('nsfwCount').textContent")) === "30");
+  ok("NSFW 工坊渲染 31 张", await evalu("document.querySelectorAll('#nsfwGrid .anime-card').length") === 31);
+  ok("NSFW 计数徽章 31", (await evalu("document.getElementById('nsfwCount').textContent")) === "31");
   await evalu("(()=>{const s=document.getElementById('nsfwSearch');s.value='泳装';s.dispatchEvent(new Event('input'))})()");
   await sleep(200);
   const n = await evalu("document.querySelectorAll('#nsfwGrid .anime-card').length");
@@ -154,6 +157,76 @@ const ok = (name, cond, extra) => { if (cond) { pass++; console.log("  ✓ " + n
 
   console.log("\n[7] 运行时错误");
   ok("没有 JS 异常 / console.error", errors.length === 0, errors.slice(0, 4).join(" | "));
+
+  console.log("\n[8] 版本漂移横幅（当前 build " + BUILD + "）");
+  /* 怎么造出「面板没重开」这个场景：bridge.js 结束时 `global.StarsPS = PS`（global 就是 window），
+   * 所以这里在页面任何脚本执行之前，给 window.StarsPS 装一个 setter —— 它在挂载的那一刻
+   * 把 PS.diskBuild 改成「磁盘上是 9.9.9」，app.js 启动时的 checkBuildDrift() 就会认为
+   * 内存里的 BUILD 与磁盘不符，横幅必须亮起来。这是纯 mock，不依赖 PS 也不依赖真实磁盘。 */
+  await send("Page.addScriptToEvaluateOnNewDocument", {
+    source: `(function(){
+      var _ps = null;
+      try {
+        Object.defineProperty(window, 'StarsPS', {
+          configurable: true,
+          get: function(){ return _ps; },
+          set: function(v){
+            _ps = v;
+            try {
+              if (v && typeof v === 'object') {
+                // 预览模式（没有 CEP）时 init 会整个跳过版本检查分支，所以这里连
+                // available / ping 一起伪装成「真的在 Photoshop 里」，只让 diskBuild 说谎
+                v.available = true;
+                v.ping = function(){ return Promise.resolve({ ps: '27.10.0', docs: 1, jsx: '${BUILD}' }); };
+                v.diskBuild = function(){ return { panel: '9.9.9', jsx: '9.9.9', dir: '' }; };
+                // 0.7.46：精修条要能点 —— 假装滤镜跑成功并回执一个新图层
+                v.polish = function(kind){
+                  return Promise.resolve({
+                    action: 'polish', kind: kind, label: kind, layer: 'Stars-AI · ' + kind,
+                    radius: 4, threshold: 15, opacity: 70, blend: 'normal',
+                    hadSelection: false, selection: null, historyStep: true,
+                    doc: { w: 2400, h: 1600 }
+                  });
+                };
+              }
+            } catch (e) {}
+          }
+        });
+      } catch (e) {}
+    })();`
+  });
+  await send("Page.navigate", { url: "http://127.0.0.1:" + PORT + "/" });
+  await sleep(2200);
+  ok("磁盘版本漂移时横幅自动出现", !(await evalu("document.getElementById('verBar').classList.contains('hidden')")));
+  ok("横幅是 warn 级（面板没重开＝最常见那种）", /\bwarn\b/.test(await evalu("document.getElementById('verBar').className") || ""));
+  ok("横幅文本带出磁盘版本 9.9.9", /9\.9\.9/.test(await evalu("document.getElementById('verBarTx').textContent") || ""));
+  ok("warn 级允许关掉（× 可见）", !(await evalu("document.getElementById('verBarClose').classList.contains('hidden')")));
+  await evalu("document.getElementById('verBarClose').click()");
+  await sleep(200);
+  ok("点 × 后横幅隐藏", await evalu("document.getElementById('verBar').classList.contains('hidden')"));
+  ok("横幅流程没有引入 JS 异常", errors.length === 0, errors.slice(0, 3).join(" | "));
+
+  console.log("\n[9] DR 精修区块（0.7.47）");
+  ok("精修是独立区块且可见", !(await evalu("(()=>{const b=document.getElementById('drCard');return !b || b.classList.contains('hidden')})()")));
+  const pbtns = await evalu("['btnPolishSmooth','btnPolishDespeckle','btnPolishSharpen','btnPolishSkintone','btnPolishEyes','btnPolishTeeth','btnPolishVignette','btnPolishDnb'].filter(id=>!document.getElementById(id))");
+  ok("8 个精修按钮都在 DOM 里", pbtns.length === 0, (pbtns || []).join(", "));
+  ok("区块有强度三段控", (await evalu("document.querySelectorAll('#drStrength .seg').length")) === 3);
+  ok("默认强度是「中」", /中/.test(await evalu("(()=>{const a=document.querySelector('#drStrength .seg.active');return a?a.textContent:''})()") || ""));
+  await evalu("(()=>{const b=[...document.querySelectorAll('#drStrength .seg')].find(x=>x.dataset.strength==='heavy');b.click()})()");
+  await sleep(200);
+  ok("点「重」后切到 heavy 并落盘",
+    /heavy/.test(await evalu("document.querySelector('#drStrength .seg.active').dataset.strength") || "") &&
+    /heavy/.test(await evalu("(JSON.parse(localStorage.getItem('starsai.cfg.v1')||'{}').settings||{}).polishStrength || ''") || ""));
+  await evalu("document.getElementById('btnPolishSmooth').click()");
+  await sleep(400);
+  ok("点「磨皮」写出日志「精修 · 磨皮」", /精修 · 磨皮/.test(await evalu("document.getElementById('log').textContent") || ""));
+  ok("日志带出新图层名", /Stars-AI · smooth/.test(await evalu("document.getElementById('log').textContent") || ""));
+  ok("日志带上强度档位", /（重）/.test(await evalu("document.getElementById('log').textContent") || ""));
+  await evalu("document.getElementById('btnPolishVignette').click()");
+  await sleep(400);
+  ok("点「暗角」也生效", /精修 · 暗角/.test(await evalu("document.getElementById('log').textContent") || ""));
+  ok("跑完没有残留 busy 态", !(await evalu("document.getElementById('drCard').classList.contains('busy')")));
+  ok("精修没有引入 JS 异常", errors.length === 0, errors.slice(0, 3).join(" | "));
 
   console.log("\n" + (fail ? "✗ " + fail + " 条失败 · " + pass + " 条通过" : "✓ 全部通过（" + pass + " 条）"));
   ws.close(); cleanup(); process.exit(fail ? 1 : 0);
